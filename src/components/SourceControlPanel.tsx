@@ -1,0 +1,107 @@
+// Container for the source-control sidebar. Wires the pure `SourceControlView`
+// and the embedded `Contribute` save flow to the SDK's `vcs` surface
+// (UI_AS_APPS_SPEC §5.3; migrate-sidebars Phase 06):
+//   • `useVcsState()`      — the host-projected diff / branch / PR snapshot
+//                            (elevated `vcs:read`; empty until the host answers)
+//   • `refreshDiff()` /
+//     `refreshPRs()`       — ask the host to recompute + re-push (gated `vcs:read`)
+//   • `resetWorkingTree()` — discard the working tree (first-party `vcs:reset`)
+// The COW/journal + OAuth token never cross; this frame only reacts to the pushed
+// state and NAMES intents the host performs.
+import { useCallback, useEffect, useRef } from "react";
+import {
+  refreshDiff,
+  refreshPRs,
+  resetWorkingTree,
+  useHostTheme,
+  useVcsState,
+} from "@immediately-run/sdk";
+import SourceControlView from "./SourceControlView";
+import Contribute from "./Contribute";
+
+// The host recomputes the diff only when asked, so the panel polls a refresh to
+// keep the change list live as the user edits (mirrors the native panel's cadence).
+const DIFF_REFRESH_MS = 1500;
+// PR polling hits the network on the host — a slower cadence keeps rate-limit
+// budget for the actual save.
+const PR_REFRESH_MS = 15000;
+
+export const SourceControlPanel: React.FC = () => {
+  const state = useVcsState();
+  const theme = useHostTheme();
+
+  // Follow the host chrome theme (the design tokens key off `data-theme`).
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  // A refresh action can reject (`no-target` when there is no host contribute
+  // session — e.g. not in edit mode). Swallow it: the panel simply shows the
+  // empty snapshot the SDK already holds.
+  const swallow = (p: Promise<void>) => {
+    void p.catch(() => {});
+  };
+
+  const onRefresh = useCallback(() => {
+    swallow(refreshDiff());
+    swallow(refreshPRs());
+  }, []);
+
+  const onReset = useCallback(async () => {
+    try {
+      await resetWorkingTree();
+    } catch {
+      // The confirmed reset failed (e.g. `no-target`). The subsequent diff push
+      // reflects the true state; nothing destructive happened on our side.
+    }
+  }, []);
+
+  // Poll the diff (fast) and PRs (slow) on their own intervals, guarding against
+  // overlapping in-flight requests so a slow host doesn't queue a backlog.
+  const diffInflight = useRef(false);
+  useEffect(() => {
+    const tick = async () => {
+      if (diffInflight.current) return;
+      diffInflight.current = true;
+      try {
+        await refreshDiff();
+      } catch {
+        /* no host session yet — ignore */
+      } finally {
+        diffInflight.current = false;
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), DIFF_REFRESH_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  const prInflight = useRef(false);
+  useEffect(() => {
+    const tick = async () => {
+      if (prInflight.current) return;
+      prInflight.current = true;
+      try {
+        await refreshPRs();
+      } catch {
+        /* no host session yet — ignore */
+      } finally {
+        prInflight.current = false;
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), PR_REFRESH_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="scp-shell">
+      <SourceControlView state={state} onRefresh={onRefresh} onReset={onReset} />
+      <div className="scp-save-region">
+        <Contribute />
+      </div>
+    </div>
+  );
+};
+
+export default SourceControlPanel;

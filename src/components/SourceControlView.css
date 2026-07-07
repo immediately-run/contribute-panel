@@ -1,0 +1,235 @@
+/* Source-control sidebar styling. Consumes the immediately.run design tokens
+   from index.css (--ink, --line, --panel, --accent, --mono …) so it follows the
+   host chrome's light/dark theme — kept visually close to the native
+   SourceControlPanel it replaces. */
+.scp {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  color: var(--ink);
+  background: var(--bg);
+  font: 400 13px/1.5 var(--sans);
+}
+
+.scp-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.scp-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scp-icon-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-2);
+  border-radius: var(--r-sm);
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.scp-icon-btn:hover {
+  color: var(--ink);
+  border-color: var(--line-2);
+}
+
+.scp-body {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scp-mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.scp-muted {
+  color: var(--ink-3);
+  margin: 0 3px;
+}
+
+.scp-branch {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.scp-branch-sub {
+  margin-top: 4px;
+  color: var(--ink-3);
+}
+
+.scp-loading {
+  color: var(--ink-2);
+  font-style: italic;
+}
+
+.scp-empty {
+  padding: 12px 0;
+}
+.scp-empty-msg {
+  color: var(--ink);
+}
+.scp-empty-sub {
+  color: var(--ink-3);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.scp-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.scp-change-group-hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-bottom: 3px;
+}
+.scp-change-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-xs);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+}
+.scp-change-badge[data-kind="created"] {
+  background: #2ea043;
+}
+.scp-change-badge[data-kind="modified"] {
+  background: #bf8700;
+}
+.scp-change-badge[data-kind="deleted"] {
+  background: #cf222e;
+}
+.scp-change-path {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  padding: 2px 0 2px 22px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scp-prs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.scp-prs-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.scp-pr-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-size: 12px;
+}
+.scp-pr-row:hover {
+  border-color: var(--line-2);
+  background: var(--panel);
+}
+.scp-pr-state {
+  font-size: 10px;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: var(--r-pill);
+  background: var(--panel-2);
+  color: var(--ink-2);
+}
+.scp-pr-state[data-state="open"] {
+  color: #2ea043;
+}
+.scp-pr-state[data-state="merged"] {
+  color: var(--accent-violet);
+}
+.scp-pr-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+}
+
+.scp-footer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+}
+.scp-btn-secondary {
+  appearance: none;
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: var(--r-pill);
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.scp-btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.scp-btn-secondary:not(:disabled):hover {
+  border-color: var(--accent-hot);
+  color: var(--accent-hot);
+}
+
+/* Shell: the read view over the embedded save flow. The save flow is the reused
+   `contribute()` pilot component — map its self-contained fallback vars onto the
+   immediately.run design tokens so it themes with the rest of the panel. */
+.scp-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+.scp-shell .scp {
+  height: auto;
+  flex: 1;
+  min-height: 0;
+}
+.scp-save-region {
+  border-top: 1px solid var(--line-2);
+}
+.scp-save-region .contribute {
+  min-width: 0;
+  background: var(--panel);
+  color: var(--ink);
+  --ct-fg: var(--ink);
+  --ct-bg: var(--panel);
+  --ct-muted: var(--ink-3);
+  --ct-border: var(--line);
+  --ct-input-bg: var(--bg);
+  --ct-accent: var(--accent-hot);
+}

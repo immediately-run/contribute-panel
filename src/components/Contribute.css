@@ -1,0 +1,132 @@
+/* The contribute dialog. Follows the host chrome (light/dark) via CSS variables
+   the host theme drives; kept self-contained so the app renders standalone too. */
+.contribute {
+  font: 13px/1.5 system-ui, -apple-system, sans-serif;
+  color: var(--ct-fg, #e6e6e6);
+  background: var(--ct-bg, #1b1d21);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 280px;
+}
+
+.ct-hd {
+  display: flex;
+  align-items: center;
+}
+.ct-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.ct-changes-h {
+  margin: 0 0 6px;
+  color: var(--ct-muted, #9aa0a6);
+}
+.ct-empty {
+  margin: 0;
+  color: var(--ct-muted, #9aa0a6);
+}
+.ct-filelist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 140px;
+  overflow: auto;
+  border: 1px solid var(--ct-border, #2c2f34);
+  border-radius: 6px;
+}
+.ct-file {
+  padding: 4px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--ct-border, #2c2f34);
+}
+.ct-file:last-child {
+  border-bottom: none;
+}
+
+.ct-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ct-label {
+  color: var(--ct-muted, #9aa0a6);
+}
+.ct-input {
+  background: var(--ct-input-bg, #111317);
+  color: inherit;
+  border: 1px solid var(--ct-border, #2c2f34);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font: inherit;
+}
+.ct-input:focus {
+  outline: 2px solid var(--ct-accent, #4f8cff);
+  outline-offset: -1px;
+}
+
+.ct-mode {
+  display: flex;
+  gap: 16px;
+}
+.ct-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.ct-save {
+  appearance: none;
+  border: none;
+  border-radius: 6px;
+  background: var(--ct-accent, #4f8cff);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+.ct-save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ct-status {
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.ct-status p {
+  margin: 0 0 4px;
+}
+.ct-done {
+  background: color-mix(in srgb, #2ecc71 18%, transparent);
+}
+.ct-error {
+  background: color-mix(in srgb, #ff5c5c 18%, transparent);
+  color: #ffb4b4;
+}
+.ct-install {
+  background: color-mix(in srgb, #f5a623 18%, transparent);
+}
+.ct-link {
+  color: var(--ct-accent, #4f8cff);
+  font-weight: 600;
+}
+.ct-retry {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--ct-border, #2c2f34);
+  color: inherit;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font: inherit;
+}
