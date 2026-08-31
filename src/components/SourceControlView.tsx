@@ -19,6 +19,12 @@ export interface SourceControlViewProps {
   /** The CONFIRMED reset — called only on the second (armed) click. Discards the
    *  working tree; the authority is the first-party `vcs:reset`, gated host-side. */
   onReset: () => void | Promise<void>;
+  /** A changed file was selected — the container posts it to the main-pane diff
+   *  half over the §5.6 IPC edge (R3-478). The path is repo-relative. */
+  onSelectFile: (path: string) => void;
+  /** The currently-selected path, if any — highlights the row (R3-478). The view
+   *  itself holds no selection state; the panel half is the source of truth. */
+  selectedPath?: string | null;
 }
 
 const STATUS_BADGE: Record<VcsChange["status"], string> = {
@@ -36,7 +42,9 @@ const STATUS_LABEL: Record<VcsChange["status"], string> = {
 const ChangeGroup: React.FC<{
   status: VcsChange["status"];
   paths: string[];
-}> = ({ status, paths }) => (
+  selectedPath?: string | null;
+  onSelectFile?: (path: string) => void;
+}> = ({ status, paths, selectedPath, onSelectFile }) => (
   <div className="scp-change-group">
     <div className="scp-change-group-hd">
       <span className="scp-change-badge" data-kind={status}>
@@ -46,9 +54,16 @@ const ChangeGroup: React.FC<{
       <span className="scp-muted">{paths.length}</span>
     </div>
     {paths.map((p) => (
-      <div key={p} className="scp-change-path" title={p}>
+      <button
+        key={p}
+        type="button"
+        className="scp-change-path"
+        data-selected={selectedPath === p || undefined}
+        title={p}
+        onClick={() => onSelectFile?.(p)}
+      >
         {p}
-      </div>
+      </button>
     ))}
   </div>
 );
@@ -57,6 +72,8 @@ export const SourceControlView: React.FC<SourceControlViewProps> = ({
   state,
   onRefresh,
   onReset,
+  onSelectFile,
+  selectedPath,
 }) => {
   const { changes, branch, prs, diffLoading } = state;
 
@@ -136,9 +153,15 @@ export const SourceControlView: React.FC<SourceControlViewProps> = ({
 
         {totalChanges > 0 && (
           <div className="scp-changes">
-            {created.length > 0 && <ChangeGroup status="created" paths={created} />}
-            {modified.length > 0 && <ChangeGroup status="modified" paths={modified} />}
-            {deleted.length > 0 && <ChangeGroup status="deleted" paths={deleted} />}
+            {created.length > 0 && (
+              <ChangeGroup status="created" paths={created} selectedPath={selectedPath} onSelectFile={onSelectFile} />
+            )}
+            {modified.length > 0 && (
+              <ChangeGroup status="modified" paths={modified} selectedPath={selectedPath} onSelectFile={onSelectFile} />
+            )}
+            {deleted.length > 0 && (
+              <ChangeGroup status="deleted" paths={deleted} selectedPath={selectedPath} onSelectFile={onSelectFile} />
+            )}
           </div>
         )}
 
