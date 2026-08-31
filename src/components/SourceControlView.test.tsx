@@ -87,4 +87,31 @@ describe("SourceControlView", () => {
     const btn = screen.getByRole("button", { name: "Reset" });
     expect((btn as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("R3-478: changed files are selectable — a row tap reports its path", () => {
+    const onSelectFile = vi.fn();
+    render(
+      <SourceControlView state={dirtyState} onRefresh={() => {}} onReset={() => {}} onSelectFile={onSelectFile} />,
+    );
+    fireEvent.click(screen.getByText("README.md"));
+    expect(onSelectFile).toHaveBeenCalledWith("README.md");
+    fireEvent.click(screen.getByText("src/added.ts"));
+    expect(onSelectFile).toHaveBeenCalledWith("src/added.ts");
+  });
+
+  it("R3-478: marks the currently-selected row", () => {
+    render(
+      <SourceControlView
+        state={dirtyState}
+        onRefresh={() => {}}
+        onReset={() => {}}
+        onSelectFile={() => {}}
+        selectedPath="README.md"
+      />,
+    );
+    const row = screen.getByText("README.md").closest("button");
+    expect(row?.hasAttribute("data-selected")).toBe(true);
+    const other = screen.getByText("src/added.ts").closest("button");
+    expect(other?.hasAttribute("data-selected")).toBe(false);
+  });
 });

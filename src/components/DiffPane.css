@@ -1,0 +1,108 @@
+/* The Source activity's main-pane half (R3-478). Shares the panel's token
+   vocabulary (index.css) — a full-width reading surface, not a sidebar. */
+
+.dp {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.dp-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dp-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dp-path {
+  font-family: "Space Mono", monospace;
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dp-badge {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--bg);
+}
+
+.dp-badge[data-kind="created"] { background: var(--ok, #34d399); }
+.dp-badge[data-kind="modified"] { background: var(--accent-2); }
+.dp-badge[data-kind="deleted"] { background: var(--bad, #f87171); }
+
+.dp-muted { color: var(--ink-3); font-size: 12px; flex: none; }
+
+.dp-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 0 24px;
+}
+
+.dp-status,
+.dp-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--ink-2);
+}
+
+.dp-error { color: var(--bad, #f87171); }
+
+.dp-empty-msg { color: var(--ink); font-weight: 600; margin-bottom: 6px; }
+.dp-empty-sub { font-size: 13px; color: var(--ink-3); }
+
+.dp-diff {
+  font-family: "Space Mono", monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.dp-row { display: flex; }
+
+.dp-text {
+  white-space: pre;
+  overflow-wrap: normal;
+  padding: 0 16px;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+
+.dp-row[data-kind="add"] .dp-text { background: rgba(52, 211, 153, 0.12); color: #bdf2dd; }
+.dp-row[data-kind="del"] .dp-text { background: rgba(248, 113, 113, 0.12); color: #fcd1d1; }
+.dp-row[data-kind="hunk"] .dp-text { color: var(--accent-3, oklch(0.82 0.12 340)); }
+.dp-row[data-kind="ctx"] .dp-text { color: var(--ink-2); }
+
+.dp-more {
+  display: block;
+  margin: 12px auto;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dp-more:hover { border-color: var(--accent); }

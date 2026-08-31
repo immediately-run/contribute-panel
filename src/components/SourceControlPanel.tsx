@@ -8,16 +8,19 @@
 //   • `resetWorkingTree()` — discard the working tree (first-party `vcs:reset`)
 // The COW/journal + OAuth token never cross; this frame only reacts to the pushed
 // state and NAMES intents the host performs.
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  postToRegion,
   refreshDiff,
   refreshPRs,
   resetWorkingTree,
+  revealRegion,
   useHostTheme,
   useVcsState,
 } from "@immediately-run/sdk";
 import SourceControlView from "./SourceControlView";
 import Contribute from "./Contribute";
+import { DIFF_PANE_REGION, type SelectMessage } from "../lib/diffSelection";
 
 // The host recomputes the diff only when asked, so the panel polls a refresh to
 // keep the change list live as the user edits (mirrors the native panel's cadence).
@@ -94,9 +97,29 @@ export const SourceControlPanel: React.FC = () => {
     return () => clearInterval(id);
   }, []);
 
+  // R3-478 — a row tap selects the file whose diff the main-pane half shows.
+  // The post crosses the panel's ONLY IPC edge; the reveal (a column transition
+  // on mobile, a focus move on desktop) must ride the same user gesture — the
+  // host reads transient activation and refuses a programmatic flip. Both may
+  // reject when the edge/mount isn't there (e.g. a standalone dev boot); the
+  // selection highlight still updates so the panel stays self-consistent.
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const onSelectFile = useCallback((path: string) => {
+    setSelectedPath(path);
+    const msg: SelectMessage = { v: 1, kind: "select", path };
+    void postToRegion(DIFF_PANE_REGION, msg).catch(() => {});
+    void revealRegion(DIFF_PANE_REGION).catch(() => {});
+  }, []);
+
   return (
     <div className="scp-shell">
-      <SourceControlView state={state} onRefresh={onRefresh} onReset={onReset} />
+      <SourceControlView
+        state={state}
+        onRefresh={onRefresh}
+        onReset={onReset}
+        onSelectFile={onSelectFile}
+        selectedPath={selectedPath}
+      />
       <div className="scp-save-region">
         <Contribute />
       </div>
