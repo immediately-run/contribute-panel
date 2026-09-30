@@ -7,6 +7,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   contribute,
   useEditorContext,
+  useVcsState,
   type ContributeMode,
   type ContributionEvent,
   type ContributionResult,
@@ -38,8 +39,13 @@ const STAGE_LABEL: Record<string, string> = {
 
 export default function Contribute() {
   const { dirtyPaths } = useEditorContext();
+  const { agentSession } = useVcsState();
   const [message, setMessage] = useState("");
   const [mode, setMode] = useState<ContributeMode>("pr");
+  // R-CT-5/8: the "Commit session transcript" request hint — rendered iff the
+  // host projects a qualifying session (absent ⇒ NO control, R-CT-3),
+  // default unchecked, spent on use: every run() resets it before the call.
+  const [transcriptRequested, setTranscriptRequested] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
   const busy = phase.kind === "running";
@@ -47,8 +53,18 @@ export default function Contribute() {
 
   const run = useCallback(async () => {
     setPhase({ kind: "running", stage: "starting" });
+    // R-CT-8: the hint is spent on use — reset BEFORE the call, so a retry
+    // after a failure asks again rather than silently re-sending.
+    const wantTranscript = transcriptRequested;
+    setTranscriptRequested(false);
     try {
-      const stream = contribute({ commitMessage: message.trim() || "Update", mode });
+      const stream = contribute({
+        commitMessage: message.trim() || "Update",
+        mode,
+        // The hint is present only when set — never a false (the host reads
+        // presence, and nothing else transcript-shaped may ride: R-CT-6).
+        ...(wantTranscript ? { transcriptRequested: true } : {}),
+      });
       let result: ContributionResult | undefined;
       for await (const ev of stream as AsyncGenerator<ContributionEvent, ContributionResult>) {
         if (ev.stage === "install-required") {
@@ -77,7 +93,7 @@ export default function Contribute() {
       const code = (e as { code?: string })?.code ?? "unknown";
       setPhase({ kind: "error", code, message: (e as Error)?.message ?? "Save failed" });
     }
-  }, [message, mode]);
+  }, [message, mode, transcriptRequested]);
 
   const errorHint = useMemo(() => {
     if (phase.kind !== "error") return null;
@@ -157,6 +173,18 @@ export default function Contribute() {
           Commit directly
         </label>
       </div>
+
+      {agentSession != null && (
+        <label className="ct-transcript">
+          <input
+            type="checkbox"
+            checked={transcriptRequested}
+            onChange={(e) => setTranscriptRequested(e.target.checked)}
+            disabled={busy}
+          />
+          Commit session transcript
+        </label>
+      )}
 
       <button
         type="button"
