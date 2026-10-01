@@ -1,12 +1,15 @@
-// Pure presentational view for the source-control sidebar — takes the projected
-// `VcsState` (from the host's `vcs:read` channel) plus a refresh + a confirmed
-// reset callback, and renders the diff summary, branch header, and open-PR list.
-// It owns ONLY presentation state (the reset arm-then-confirm toggle); every
-// authority-bearing action is a prop the container wires to the SDK. Keeping it
-// framework-only + side-effect-free makes it unit-testable without the host
-// (mirrors the native `SourceControlPanel` UX it replaces).
+// The source-control sidebar's view — takes the projected `VcsState` (from the
+// host's `vcs:read` channel) plus a refresh + a confirmed reset callback, and
+// renders the diff summary, branch header, and open-PR list. Nearly pure: it
+// owns presentation state (the reset arm-then-confirm toggle; the link-error
+// line) and makes ONE SDK-adjacent call itself — the PR rows' outward links go
+// through `openExternalLink` (R3-621: the host must open them; a plain anchor
+// from this frame opens a broken sandboxed tab). Keeping it framework-only
+// otherwise is what keeps it unit-testable without the host (mirrors the
+// native `SourceControlPanel` UX it replaces).
 import { useEffect, useState } from "react";
 import type { VcsChange, VcsState } from "@immediately-run/sdk";
+import { openExternalLink } from "../lib/externalLink";
 import "./SourceControlView.css";
 
 /** How long the reset stays "armed" after the first click before it disarms. */
@@ -78,6 +81,8 @@ export const SourceControlView: React.FC<SourceControlViewProps> = ({
   const { changes, branch, prs, diffLoading } = state;
 
   const [confirmReset, setConfirmReset] = useState(false);
+  // A refused outward link (the PR rows) renders here — the one error line.
+  const [linkError, setLinkError] = useState<string | null>(null);
   useEffect(() => {
     if (!confirmReset) return;
     const id = setTimeout(() => setConfirmReset(false), RESET_CONFIRM_WINDOW_MS);
@@ -168,6 +173,11 @@ export const SourceControlView: React.FC<SourceControlViewProps> = ({
         {prs.length > 0 && (
           <div className="scp-prs">
             <div className="scp-prs-title">PRs associated with this branch</div>
+            {linkError && (
+              <div className="scp-muted" role="alert">
+                {linkError}
+              </div>
+            )}
             {prs.map((pr) => (
               <a
                 key={pr.number}
@@ -176,6 +186,10 @@ export const SourceControlView: React.FC<SourceControlViewProps> = ({
                 rel="noopener noreferrer"
                 className="scp-pr-row"
                 title={pr.title}
+                onClick={(ev) => {
+                  setLinkError(null); // a new attempt supersedes the last refusal
+                  openExternalLink(pr.url, ev, setLinkError);
+                }}
               >
                 <span>#{pr.number}</span>
                 <span className="scp-pr-state" data-state={pr.state}>

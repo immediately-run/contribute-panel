@@ -11,9 +11,13 @@ import {
   type ContributionEvent,
   type ContributionResult,
 } from "@immediately-run/sdk";
+import { openExternalLink } from "../lib/externalLink";
 import "./Contribute.css";
 
-type Phase =
+/** The dialog's state machine. Exported (type-only) so the externalLink test
+ *  reads its href from the same prop the component passes, never a retyped
+ *  string (the item's Tests section). */
+export type Phase =
   | { kind: "idle" }
   | { kind: "running"; stage: string }
   | { kind: "needs-install"; installUrl: string; targetOwner: string; targetRepo: string }
@@ -41,6 +45,10 @@ export default function Contribute() {
   const [message, setMessage] = useState("");
   const [mode, setMode] = useState<ContributeMode>("pr");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  // A refused outward link (the install/PR anchors) renders here — BESIDE the
+  // current phase, never instead of it: an error phase would unmount the very
+  // link + retry the user needs.
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   const busy = phase.kind === "running";
   const nothingToSave = dirtyPaths.length === 0;
@@ -176,7 +184,16 @@ export default function Contribute() {
             </strong>{" "}
             to save here.
           </p>
-          <a className="ct-link" href={phase.installUrl} target="_blank" rel="noreferrer">
+          <a
+            className="ct-link"
+            href={phase.installUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(ev) => {
+              setLinkError(null);
+              openExternalLink(phase.installUrl, ev, setLinkError);
+            }}
+          >
             Install…
           </a>{" "}
           <button type="button" className="ct-retry" onClick={run}>
@@ -190,7 +207,16 @@ export default function Contribute() {
           {phase.result.prUrl ? (
             <p>
               Pull request opened —{" "}
-              <a className="ct-link" href={phase.result.prUrl} target="_blank" rel="noreferrer">
+              <a
+                className="ct-link"
+                href={phase.result.prUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(ev) => {
+                  setLinkError(null);
+                  if (phase.result.prUrl) openExternalLink(phase.result.prUrl, ev, setLinkError);
+                }}
+              >
                 #{phase.result.prNumber}
               </a>
             </p>
@@ -201,6 +227,11 @@ export default function Contribute() {
       )}
 
       {phase.kind === "error" && <div className="ct-status ct-error">{errorHint}</div>}
+      {linkError && (
+        <div className="ct-status ct-error" role="alert">
+          {linkError}
+        </div>
+      )}
     </div>
   );
 }

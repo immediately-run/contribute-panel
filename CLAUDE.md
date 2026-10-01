@@ -15,10 +15,12 @@ Since R3-478 the same program also serves the `mainpane.contribute-diff` region
   surface (`useVcsState` / `refreshDiff` / `refreshPRs` / `resetWorkingTree`),
   follows the host theme (`useHostTheme` → `data-theme`), polls the diff (1.5s) and
   PRs (15s), embeds the save flow, and posts file selections to the diff half.
-- `src/components/SourceControlView.tsx` — **pure, side-effect-free view**: takes
-  `VcsState` + `onRefresh` + `onReset` + `onSelectFile`, renders the diff / branch /
-  PR list, and owns only the reset arm-then-confirm toggle. Unit-tested in
-  `SourceControlView.test.tsx` (no SDK/host needed).
+- `src/components/SourceControlView.tsx` — **the view**: takes `VcsState` +
+  `onRefresh` + `onReset` + `onSelectFile`, renders the diff / branch / PR list,
+  and owns presentation state (the reset arm-then-confirm toggle, the link-error
+  line). One SDK-adjacent call is wired in the view itself: the PR rows' outward
+  links go through `src/lib/externalLink.ts` (R3-621 — the host must open them).
+  Unit-tested in `SourceControlView.test.tsx` (no SDK/host needed).
 - `src/components/Contribute.tsx` — the save flow, reused verbatim from the
   `immediately-run/contribute` dialog pilot (`contribute()` stream + `useEditorContext`).
 - `src/components/DiffPane.tsx` — the **main-pane half** (R3-478): renders the

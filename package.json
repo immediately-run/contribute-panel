@@ -14,7 +14,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@immediately-run/sdk": "^0.57.1",
+    "@immediately-run/sdk": "^0.75.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
