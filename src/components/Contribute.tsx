@@ -11,9 +11,13 @@ import {
   type ContributionEvent,
   type ContributionResult,
 } from "@immediately-run/sdk";
+import { openExternalLink } from "../lib/externalLink";
 import "./Contribute.css";
 
-type Phase =
+/** The dialog's state machine. Exported (type-only) so the externalLink test
+ *  reads its href from the same prop the component passes, never a retyped
+ *  string (the item's Tests section). */
+export type Phase =
   | { kind: "idle" }
   | { kind: "running"; stage: string }
   | { kind: "needs-install"; installUrl: string; targetOwner: string; targetRepo: string }
@@ -176,7 +180,17 @@ export default function Contribute() {
             </strong>{" "}
             to save here.
           </p>
-          <a className="ct-link" href={phase.installUrl} target="_blank" rel="noreferrer">
+          <a
+            className="ct-link"
+            href={phase.installUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(ev) =>
+              openExternalLink(phase.installUrl, ev, (message) =>
+                setPhase({ kind: "error", code: "open-failed", message }),
+              )
+            }
+          >
             Install…
           </a>{" "}
           <button type="button" className="ct-retry" onClick={run}>
@@ -190,7 +204,18 @@ export default function Contribute() {
           {phase.result.prUrl ? (
             <p>
               Pull request opened —{" "}
-              <a className="ct-link" href={phase.result.prUrl} target="_blank" rel="noreferrer">
+              <a
+                className="ct-link"
+                href={phase.result.prUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(ev) =>
+                  phase.result.prUrl &&
+                  openExternalLink(phase.result.prUrl, ev, (message) =>
+                    setPhase({ kind: "error", code: "open-failed", message }),
+                  )
+                }
+              >
                 #{phase.result.prNumber}
               </a>
             </p>
