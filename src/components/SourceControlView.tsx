@@ -1,10 +1,12 @@
-// Pure presentational view for the source-control sidebar — takes the projected
-// `VcsState` (from the host's `vcs:read` channel) plus a refresh + a confirmed
-// reset callback, and renders the diff summary, branch header, and open-PR list.
-// It owns ONLY presentation state (the reset arm-then-confirm toggle); every
-// authority-bearing action is a prop the container wires to the SDK. Keeping it
-// framework-only + side-effect-free makes it unit-testable without the host
-// (mirrors the native `SourceControlPanel` UX it replaces).
+// The source-control sidebar's view — takes the projected `VcsState` (from the
+// host's `vcs:read` channel) plus a refresh + a confirmed reset callback, and
+// renders the diff summary, branch header, and open-PR list. Nearly pure: it
+// owns presentation state (the reset arm-then-confirm toggle; the link-error
+// line) and makes ONE SDK-adjacent call itself — the PR rows' outward links go
+// through `openExternalLink` (R3-621: the host must open them; a plain anchor
+// from this frame opens a broken sandboxed tab). Keeping it framework-only
+// otherwise is what keeps it unit-testable without the host (mirrors the
+// native `SourceControlPanel` UX it replaces).
 import { useEffect, useState } from "react";
 import type { VcsChange, VcsState } from "@immediately-run/sdk";
 import { openExternalLink } from "../lib/externalLink";
@@ -184,7 +186,10 @@ export const SourceControlView: React.FC<SourceControlViewProps> = ({
                 rel="noopener noreferrer"
                 className="scp-pr-row"
                 title={pr.title}
-                onClick={(ev) => openExternalLink(pr.url, ev, setLinkError)}
+                onClick={(ev) => {
+                  setLinkError(null); // a new attempt supersedes the last refusal
+                  openExternalLink(pr.url, ev, setLinkError);
+                }}
               >
                 <span>#{pr.number}</span>
                 <span className="scp-pr-state" data-state={pr.state}>

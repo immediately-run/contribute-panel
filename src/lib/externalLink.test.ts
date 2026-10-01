@@ -6,12 +6,12 @@
 // Deviation from the item's literal test spec, recorded on the PR: the spec's
 // "prevent the default when the call resolves / do not prevent on
 // `unsupported`" cannot work in a real browser — the anchor's default
-// navigation runs when the click dispatch completes, before ANY promise
-// continuation, so a post-await preventDefault never prevents. The handler
-// therefore prevents synchronously (the platformLink.tsx shape the item's
-// Architecture section cites) and the `unsupported` case navigates by hand via
-// window.open — the anchor's own semantics. The live legs (R3-890) verify on
-// the venue.
+// navigation runs when the click dispatch completes, and the host's answer is a
+// postMessage round-trip (a macrotask), so a post-await preventDefault never
+// prevents. The handler prevents synchronously (the platformLink.tsx shape the
+// item's Architecture section cites) and the `unsupported`/no-host cases
+// navigate by hand via window.open — the anchor's own semantics. The live legs
+// (R3-890) verify on the venue.
 import { openExternalLink } from "./externalLink";
 import type { Phase } from "../components/Contribute";
 
@@ -20,9 +20,18 @@ vi.mock("@immediately-run/sdk", () => ({ openExternal: mockOpenExternal }));
 
 const HREF = "https://github.com/apps/immediately-run/installations/new";
 
-const fakeEvent = () => ({ prevented: false, preventDefault() { this.prevented = true; } });
+const fakeEvent = () => ({
+  prevented: false,
+  preventDefault() {
+    this.prevented = true;
+  },
+});
 
 const refusal = (code: string) => Object.assign(new Error(`refused: ${code}`), { code });
+
+/** The SDK's no-host failure, verbatim: an UNCODED Error from the transport
+ *  layer (`hostTransport.ts`'s transport()), not a coded refusal. */
+const NO_HOST = new Error("immediately.run: no host transport (neither injected nor __immediatelyRun__)");
 
 describe("openExternalLink", () => {
   beforeEach(() => {
@@ -49,6 +58,18 @@ describe("openExternalLink", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(opened).toHaveBeenCalledWith(HREF, "_blank", "noreferrer");
+    opened.mockRestore();
+  });
+
+  it("on the UNCODED no-host rejection (vite dev): the same fallback — a usable link, no raw error", async () => {
+    mockOpenExternal.mockRejectedValue(NO_HOST);
+    const opened = vi.spyOn(window, "open").mockImplementation(() => null);
+    const onError = vi.fn();
+    openExternalLink(HREF, fakeEvent(), onError);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(opened).toHaveBeenCalledWith(HREF, "_blank", "noreferrer");
+    expect(onError).not.toHaveBeenCalled();
     opened.mockRestore();
   });
 

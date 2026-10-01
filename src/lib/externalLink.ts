@@ -14,28 +14,33 @@
 // navigation is the correct behaviour (the same no-host fallback
 // `platformLink.tsx` documents).
 //
-// Timing note (why preventDefault is synchronous): an anchor's default
-// navigation runs when the event dispatch completes — BEFORE any promise
-// continuation — so preventing after `await openExternal(...)` could never
-// prevent anything (the broken tab would open beside the good one). The click
-// handler prevents up front, exactly as `PlatformLink` does, and the one case
-// that should have used the anchor instead — an older host with no outward-link
-// surface (`unsupported`) — navigates by hand with the anchor's own
-// `window.open(href, '_blank')` semantics.
-import { openExternal } from "@immediately-run/sdk";
+// Timing note (why preventDefault is synchronous): the host's answer is a
+// postMessage round-trip — a Macrotask — and an anchor's default navigation
+// runs when the click dispatch completes, so a `preventDefault()` that waited
+// for the answer could never prevent anything (the broken sandboxed tab would
+// open beside the good one). The click handler prevents up front, exactly as
+// `PlatformLink` does, and the cases that should have used the anchor instead
+// — an older host with no outward-link surface (`unsupported`), or no host at
+// all — navigate by hand with the anchor's own `window.open(href, '_blank')`
+// semantics.
+import { openExternal, type OpenExternalErrorCode } from "@immediately-run/sdk";
 
-/** Why the host refused (the SDK's OpenExternalError code union). Only the
- *  values with handling distinct from "surface it" are named. */
-type OpenExternalErrorCode = "invalid" | "no-activation" | "declined" | "forbidden" | "unsupported" | "unknown";
+/** The no-host rejection's stable shape: the SDK's transport layer throws an
+ *  UNCODED Error with this message when no host runtime exists (vite dev).
+ *  Matched on the message — the SDK exports no code for it, and no public
+ *  synchronous host probe exists today (TinkerableContext is not exported).
+ *  If the SDK gains either, use it and delete this. */
+const NO_HOST_TRANSPORT = "no host transport";
 
 /**
  * The click handler for an outward link. `ev.preventDefault()` runs
  * synchronously (see the module note); the host is asked inside the gesture.
  *
  * - resolved — the host opened the tab; the anchor does not navigate.
- * - `unsupported` — no host surface: navigate with the anchor's own semantics
- *   (`window.open(href, "_blank", "noreferrer")`), so an older host or
- *   `vite dev` keeps a working link.
+ * - `unsupported`, or the uncoded no-host-transport rejection (vite dev) —
+ *   navigate with the anchor's own semantics
+ *   (`window.open(href, "_blank", "noreferrer")`), so an older host or no host
+ *   keeps a working link.
  * - `declined` / `no-activation` — the user chose not to, or the click carried
  *   no gesture: leave the panel as it was, no error surfaced. (Never retried
  *   automatically — the next open needs the user's next gesture, by design.)
@@ -50,7 +55,8 @@ export function openExternalLink(
   ev.preventDefault();
   void openExternal(href).catch((e: unknown) => {
     const code = (e as { code?: unknown })?.code as OpenExternalErrorCode | undefined;
-    if (code === "unsupported") {
+    const message = e instanceof Error ? e.message : "";
+    if (code === "unsupported" || (code === undefined && message.includes(NO_HOST_TRANSPORT))) {
       window.open(href, "_blank", "noreferrer");
       return;
     }
