@@ -15,7 +15,7 @@
 // `platformLink.tsx` documents).
 //
 // Timing note (why preventDefault is synchronous): the host's answer is a
-// postMessage round-trip — a Macrotask — and an anchor's default navigation
+// postMessage round-trip — a macrotask — and an anchor's default navigation
 // runs when the click dispatch completes, so a `preventDefault()` that waited
 // for the answer could never prevent anything (the broken sandboxed tab would
 // open beside the good one). The click handler prevents up front, exactly as
