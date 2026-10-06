@@ -109,6 +109,10 @@
 .ct-done {
   background: color-mix(in srgb, #2ecc71 18%, transparent);
 }
+.ct-field-error {
+  color: #ffb4b4;
+  font-size: 12px;
+}
 .ct-error {
   background: color-mix(in srgb, #ff5c5c 18%, transparent);
   color: #ffb4b4;
