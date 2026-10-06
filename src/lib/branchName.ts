@@ -21,6 +21,9 @@ const INVALID_BRANCH_PUNCTUATION = /[~^:?*[\\]/;
 
 export const validateBranchName = (name: string): BranchValidation => {
   if (!name) return { ok: false, reason: 'empty' };
+  // A leading dash reads as a command-line option; git refuses it for the whole
+  // name only (`feature/-x` is a valid branch), so this is not a per-component rule.
+  if (name.startsWith('-')) return { ok: false, reason: 'cannot start with "-"' };
   if (name.startsWith('/') || name.endsWith('/')) {
     return { ok: false, reason: 'cannot start or end with "/"' };
   }
