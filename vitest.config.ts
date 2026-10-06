@@ -7,6 +7,7 @@ import { defineConfig } from 'vitest/config';
 // `React` need not be in scope.
 export default defineConfig({
   esbuild: { jsx: 'automatic' },
+  server: { host: '127.0.0.1' }, // the worker VM's /etc/hosts has no `localhost` entry
   test: {
     environment: 'jsdom',
     globals: true,
