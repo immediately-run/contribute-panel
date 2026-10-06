@@ -5,9 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { validateBranchName } from './branchName';
 
 describe('validateBranchName', () => {
-  const ok = ['immediately-run/edit-abc1234', 'feature/x', 'a/b/c', 'one.two.three'];
+  const ok = ['immediately-run/edit-abc1234', 'feature/x', 'a/b/c', 'one.two.three', 'feature/-leading'];
   const bad: Array<[string, string]> = [
     ['', 'empty'],
+    ['-leading', 'cannot start with "-"'],
     ['/leading', 'cannot start or end with "/"'],
     ['trailing/', 'cannot start or end with "/"'],
     ['.dotstart', 'cannot start or end with "."'],
