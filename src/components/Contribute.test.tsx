@@ -3,7 +3,7 @@
 // SDK: a typed valid name rides along to contribute(), an invalid one shows the
 // reason and disables save, an empty field sends no branchName, and the field is
 // disabled while a save is in flight.
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 
 vi.mock("@immediately-run/sdk", () => {
   let dirty: string[] = ["src/a.ts"];
@@ -74,6 +74,32 @@ describe("Contribute — the branch-name input (R3-985)", () => {
     render(<Contribute />);
     expect(screen.queryByText(/Invalid branch name/)).toBeNull();
     expect(saveButton().disabled).toBe(false);
+  });
+
+  it("the field is disabled while a save is in flight", async () => {
+    // A never-settling stream holds the running phase.
+    sdk.contribute.mockImplementationOnce(async function* () {
+      yield { stage: "starting" };
+      await new Promise(() => {});
+    });
+    render(<Contribute />);
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(branchField().disabled).toBe(true));
+  });
+
+  it("a stale invalid name does not touch direct mode (round-1 review)", async () => {
+    render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "has space" } });
+    fireEvent.click(screen.getByRole("radio", { name: /commit directly/i }));
+    // The error and the field are gone, and Commit is enabled.
+    expect(screen.queryByText(/Invalid branch name/)).toBeNull();
+    const commit = screen.getByRole("button", { name: /^commit$/i }) as HTMLButtonElement;
+    expect(commit.disabled).toBe(false);
+    fireEvent.click(commit);
+    await waitFor(() => expect(sdk.contribute).toHaveBeenCalled());
+    const arg = sdk.contribute.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.mode).toBe("direct");
+    expect("branchName" in arg).toBe(false);
   });
 
   async function waitForContribute() {

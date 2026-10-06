@@ -25,4 +25,9 @@ describe('saveOptions (R3-985)', () => {
     const r = saveOptions({ message: 'x', branchName: 'feature/ignored', mode: 'direct' });
     expect(r).toEqual({ ok: true, options: { commitMessage: 'x', mode: 'direct' } });
   });
+
+  it('direct mode IGNORES a stale invalid name — never validated, never sent, never blocks', () => {
+    const r = saveOptions({ message: 'x', branchName: 'has space', mode: 'direct' });
+    expect(r).toEqual({ ok: true, options: { commitMessage: 'x', mode: 'direct' } });
+  });
 });
