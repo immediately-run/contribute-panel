@@ -8,11 +8,14 @@ import {
   contribute,
   useEditorContext,
   type ContributeMode,
+  type ContributeOptions,
   type ContributionEvent,
   type ContributionResult,
 } from "@immediately-run/sdk";
 import { openExternalLink } from "../lib/externalLink";
+import { recoveryPlan, type RecoveryPlan } from "../lib/recovery";
 import { BRANCH_NAME_PLACEHOLDER, saveOptions } from "../lib/saveOptions";
+import RecoveryActions from "./RecoveryActions";
 import "./Contribute.css";
 
 /** The dialog's state machine. Exported (type-only) so the externalLink test
@@ -21,9 +24,18 @@ import "./Contribute.css";
 export type Phase =
   | { kind: "idle" }
   | { kind: "running"; stage: string }
-  | { kind: "needs-install"; installUrl: string; targetOwner: string; targetRepo: string }
+  | {
+      kind: "needs-install";
+      installUrl: string;
+      targetOwner: string;
+      targetRepo: string;
+    }
   | { kind: "done"; result: ContributionResult }
-  | { kind: "error"; code: string; message: string };
+  // R3-994: the error phase carries the recovery plan (from the event's
+  // `recovery` field + whether the branch name was typed) and the event's real
+  // code when there is one — the event carries none, the catch path carries the
+  // thrown one, and the hardcoded "failed" is gone.
+  | { kind: "error"; code: string | null; message: string; plan: RecoveryPlan };
 
 // Friendly one-liners for the orchestrator stages (CONTRIBUTE_SPEC §15.7).
 const STAGE_LABEL: Record<string, string> = {
@@ -44,6 +56,10 @@ const STAGE_LABEL: Record<string, string> = {
 export default function Contribute() {
   const { dirtyPaths } = useEditorContext();
   const [message, setMessage] = useState("");
+  // R3-994 (CONTRIBUTE_SPEC §8.8): the force-update checkbox, offered only after a
+  // `use-different-name` error on a name the user typed; checked rides the next
+  // save as forceUpdateBranch (the host's lineage gate still decides).
+  const [forceUpdate, setForceUpdate] = useState(false);
   const [branchName, setBranchName] = useState("");
   const [mode, setMode] = useState<ContributeMode>("pr");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
@@ -58,51 +74,94 @@ export default function Contribute() {
   // inline and disables save. An untouched/empty field never errors.
   // PR mode only: in direct mode the field is unmounted and a stale typed name
   // must not silently disable the commit (round-1 review).
-  const branchCheck = mode === "pr" && branchName.trim() !== "" ? saveOptions({ message, branchName, mode }) : null;
-  const branchError = branchCheck && !branchCheck.ok ? branchCheck.reason : null;
+  const branchCheck =
+    mode === "pr" && branchName.trim() !== ""
+      ? saveOptions({ message, branchName, mode })
+      : null;
+  const branchError =
+    branchCheck && !branchCheck.ok ? branchCheck.reason : null;
 
-  const run = useCallback(async () => {
-    // The mapping is saveOptions': a typed branch name rides along (validated
-    // there), an empty field sends none (the host generates the default).
-    // Validate BEFORE entering the running phase — the needs-install retry reaches
-    // here unguarded, and a bail after setPhase would wedge the form (round-1 review).
-    const opts = saveOptions({ message, branchName, mode });
-    if (!opts.ok) return; // unreachable with the form's disabled-save guard; never wedges
-    setPhase({ kind: "running", stage: "starting" });
-    try {
-      const stream = contribute(opts.options);
-      let result: ContributionResult | undefined;
-      for await (const ev of stream as AsyncGenerator<ContributionEvent, ContributionResult>) {
-        if (ev.stage === "install-required") {
-          // Forward-only v1 (§5.1): the GitHub App must be installed on the target.
-          // Show the link; after installing, the user retries (a fresh stream).
-          setPhase({
-            kind: "needs-install",
-            installUrl: ev.installUrl,
-            targetOwner: ev.targetOwner,
-            targetRepo: ev.targetRepo,
-          });
-          return;
+  // R3-994: `over` is a recovery action's override — the CT-6 resume context, a
+  // switch-to-pr mode, or nothing (the Save button's own re-run). The §8.8 force
+  // rides as the checkbox state; every re-run goes through the same validation.
+  const run = useCallback(
+    async (over: Partial<ContributeOptions> = {}) => {
+      // The mapping is saveOptions': a typed branch name rides along (validated
+      // there), an empty field sends none (the host generates the default).
+      // Validate BEFORE entering the running phase — the needs-install retry reaches
+      // here unguarded, and a bail after setPhase would wedge the form (round-1 review).
+      const opts = saveOptions({ message, branchName, mode });
+      if (!opts.ok) return; // unreachable with the form's disabled-save guard; never wedges
+      setPhase({ kind: "running", stage: "starting" });
+      try {
+        const stream = contribute({
+          ...opts.options,
+          ...over,
+          ...(forceUpdate ? { forceUpdateBranch: true } : {}),
+        });
+        let result: ContributionResult | undefined;
+        for await (const ev of stream as AsyncGenerator<
+          ContributionEvent,
+          ContributionResult
+        >) {
+          if (ev.stage === "install-required") {
+            // Forward-only v1 (§5.1): the GitHub App must be installed on the target.
+            // Show the link; after installing, the user retries (a fresh stream).
+            setPhase({
+              kind: "needs-install",
+              installUrl: ev.installUrl,
+              targetOwner: ev.targetOwner,
+              targetRepo: ev.targetRepo,
+            });
+            return;
+          }
+          if (ev.stage === "error") {
+            // R3-994: the plan comes from the event's `recovery` (+ the typed-name
+            // fact); the code is the event's real one when present — it carries
+            // none, so null (the hint map falls to the message), never "failed".
+            setPhase({
+              kind: "error",
+              code: null,
+              message: ev.message,
+              plan: recoveryPlan(ev, branchName.trim() !== "" && mode === "pr"),
+            });
+            return;
+          }
+          if (ev.stage === "done") {
+            result = ev as unknown as ContributionResult;
+          }
+          setPhase({ kind: "running", stage: ev.stage });
         }
-        if (ev.stage === "error") {
-          setPhase({ kind: "error", code: "failed", message: ev.message });
-          return;
-        }
-        if (ev.stage === "done") {
-          result = ev as unknown as ContributionResult;
-        }
-        setPhase({ kind: "running", stage: ev.stage });
+        // The generator's RETURN value is the settled result; prefer it.
+        setPhase({
+          kind: "done",
+          result:
+            result ??
+            ({
+              commitSha: "",
+              treeSha: "",
+              branchName: "",
+              mode: "new-branch-pr",
+            } as ContributionResult),
+        });
+      } catch (e) {
+        const code = (e as { code?: string })?.code ?? "unknown";
+        // A refused resume (`forbidden`) lands here: the thrown error renders in
+        // the same error region, with no plan (the throw carries none).
+        setPhase({
+          kind: "error",
+          code,
+          message: (e as Error)?.message ?? "Save failed",
+          plan: null,
+        });
       }
-      // The generator's RETURN value is the settled result; prefer it.
-      setPhase({ kind: "done", result: result ?? ({ commitSha: "", treeSha: "", branchName: "", mode: "new-branch-pr" } as ContributionResult) });
-    } catch (e) {
-      const code = (e as { code?: string })?.code ?? "unknown";
-      setPhase({ kind: "error", code, message: (e as Error)?.message ?? "Save failed" });
-    }
-  }, [message, branchName, mode]);
+    },
+    [message, branchName, mode, forceUpdate],
+  );
 
   const errorHint = useMemo(() => {
     if (phase.kind !== "error") return null;
+    if (phase.code === null) return phase.message;
     switch (phase.code) {
       case "auth-required":
         return "Sign in to save your changes.";
@@ -133,7 +192,8 @@ export default function Contribute() {
         ) : (
           <>
             <p className="ct-changes-h">
-              {dirtyPaths.length} file{dirtyPaths.length === 1 ? "" : "s"} will be saved
+              {dirtyPaths.length} file{dirtyPaths.length === 1 ? "" : "s"} will
+              be saved
             </p>
             <ul className="ct-filelist">
               {dirtyPaths.map((p) => (
@@ -167,7 +227,11 @@ export default function Contribute() {
             onChange={(e) => setBranchName(e.target.value)}
             disabled={busy}
           />
-          {branchError && <span className="ct-field-error">Invalid branch name: {branchError}</span>}
+          {branchError && (
+            <span className="ct-field-error">
+              Invalid branch name: {branchError}
+            </span>
+          )}
         </label>
       )}
 
@@ -197,10 +261,14 @@ export default function Contribute() {
       <button
         type="button"
         className="ct-save"
-        onClick={run}
+        onClick={() => void run()}
         disabled={busy || nothingToSave || branchError !== null}
       >
-        {busy ? STAGE_LABEL[phase.stage] ?? "Saving…" : mode === "direct" ? "Commit" : "Open pull request"}
+        {busy
+          ? (STAGE_LABEL[phase.stage] ?? "Saving…")
+          : mode === "direct"
+            ? "Commit"
+            : "Open pull request"}
       </button>
 
       {phase.kind === "needs-install" && (
@@ -224,7 +292,7 @@ export default function Contribute() {
           >
             Install…
           </a>{" "}
-          <button type="button" className="ct-retry" onClick={run}>
+          <button type="button" className="ct-retry" onClick={() => void run()}>
             I've installed — retry
           </button>
         </div>
@@ -242,19 +310,36 @@ export default function Contribute() {
                 rel="noreferrer"
                 onClick={(ev) => {
                   setLinkError(null);
-                  if (phase.result.prUrl) openExternalLink(phase.result.prUrl, ev, setLinkError);
+                  if (phase.result.prUrl)
+                    openExternalLink(phase.result.prUrl, ev, setLinkError);
                 }}
               >
                 #{phase.result.prNumber}
               </a>
             </p>
           ) : (
-            <p>Committed {phase.result.commitSha.slice(0, 7)} to {phase.result.branchName}.</p>
+            <p>
+              Committed {phase.result.commitSha.slice(0, 7)} to{" "}
+              {phase.result.branchName}.
+            </p>
           )}
         </div>
       )}
 
-      {phase.kind === "error" && <div className="ct-status ct-error">{errorHint}</div>}
+      {phase.kind === "error" && (
+        <div className="ct-status ct-error">
+          {errorHint}
+          {phase.plan && (
+            <RecoveryActions
+              plan={phase.plan}
+              rerun={run}
+              setMode={setMode}
+              forceUpdate={forceUpdate}
+              setForceUpdate={setForceUpdate}
+            />
+          )}
+        </div>
+      )}
       {linkError && (
         <div className="ct-status ct-error" role="alert">
           {linkError}
