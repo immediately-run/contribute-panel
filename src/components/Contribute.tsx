@@ -90,14 +90,25 @@ export default function Contribute() {
       // there), an empty field sends none (the host generates the default).
       // Validate BEFORE entering the running phase — the needs-install retry reaches
       // here unguarded, and a bail after setPhase would wedge the form (round-1 review).
-      const opts = saveOptions({ message, branchName, mode });
+      // A switch-to-pr override decides BEFORE saveOptions (round-1 review): the
+      // render-time mode would discard the typed branch name the re-run must carry.
+      const opts = saveOptions({
+        message,
+        branchName,
+        mode: over.mode ?? mode,
+      });
       if (!opts.ok) return; // unreachable with the form's disabled-save guard; never wedges
       setPhase({ kind: "running", stage: "starting" });
+      // §8.8 (round-1 review): the force rides ONLY the checkbox's own re-run —
+      // consume it here, so no later save (and never the CT-6 resume) carries an
+      // unoffered force once the checkbox is unreachable.
+      const forceThisRun = forceUpdate;
+      if (forceThisRun) setForceUpdate(false);
       try {
         const stream = contribute({
           ...opts.options,
           ...over,
-          ...(forceUpdate ? { forceUpdateBranch: true } : {}),
+          ...(forceThisRun ? { forceUpdateBranch: true } : {}),
         });
         let result: ContributionResult | undefined;
         for await (const ev of stream as AsyncGenerator<
@@ -123,7 +134,12 @@ export default function Contribute() {
               kind: "error",
               code: null,
               message: ev.message,
-              plan: recoveryPlan(ev, branchName.trim() !== "" && mode === "pr"),
+              // The typed-name fact is about the run that just failed — the mode it
+              // used and the name it carried, not the render-time radio.
+              plan: recoveryPlan(
+                ev,
+                branchName.trim() !== "" && (over.mode ?? mode) === "pr",
+              ),
             });
             return;
           }
@@ -146,11 +162,13 @@ export default function Contribute() {
         });
       } catch (e) {
         const code = (e as { code?: string })?.code ?? "unknown";
-        // A refused resume (`forbidden`) lands here: the thrown error renders in
-        // the same error region, with no plan (the throw carries none).
+        // A refused resume (`forbidden`, the host's ledger refusing a context it
+        // did not mint) lands here: the thrown message IS the description — a
+        // canned permission hint would misdescribe it — so code null lets the
+        // hint map fall to the message (round-1 review).
         setPhase({
           kind: "error",
-          code,
+          code: over.resume !== undefined ? null : code,
           message: (e as Error)?.message ?? "Save failed",
           plan: null,
         });
@@ -327,7 +345,7 @@ export default function Contribute() {
       )}
 
       {phase.kind === "error" && (
-        <div className="ct-status ct-error">
+        <div className="ct-status ct-error" role="alert">
           {errorHint}
           {phase.plan && (
             <RecoveryActions

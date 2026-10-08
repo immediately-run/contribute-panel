@@ -270,6 +270,129 @@ describe("Contribute — the recovery actions (R3-994, CONTRIBUTE_SPEC §12)", (
     expect(screen.queryByLabelText(/update the existing branch/i)).toBeNull();
   });
 
+  it("the §8.8 force rides ONLY the checkbox's own re-run — a later save carries none (round-1 review)", async () => {
+    sdk.__setEvents([
+      {
+        stage: "error",
+        message: "Branch already exists",
+        recoverable: true,
+        recovery: "use-different-name",
+      },
+      {
+        stage: "error",
+        message: "Branch already exists",
+        recoverable: true,
+        recovery: "use-different-name",
+      },
+      { stage: "done", commitSha: "c".repeat(40) },
+    ]);
+    render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "feature/my-branch" } });
+    fireEvent.click(saveButton());
+    await screen.findByText(/branch name is already taken/i);
+    fireEvent.click(
+      screen.getByLabelText(/update the existing branch instead/i),
+    );
+    fireEvent.click(saveButton());
+    await waitFor(() => {
+      const forced = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(forced.forceUpdateBranch).toBe(true);
+    });
+    // The checkbox's own re-run consumed the force; the next save — with the
+    // checkbox gone (a fresh plan) — carries no unoffered force.
+    fireEvent.click(saveButton());
+    await waitFor(() => {
+      const later = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(later.forceUpdateBranch).toBeUndefined();
+    });
+  });
+
+  it("a switch-to-pr re-run CARRIES the typed branch name (round-1 review)", async () => {
+    sdk.__setEvents([
+      {
+        stage: "error",
+        message: "Not a fast-forward",
+        recoverable: true,
+        recovery: "switch-to-pr",
+      },
+      { stage: "done", commitSha: "c".repeat(40) },
+    ]);
+    render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "feature/my-branch" } });
+    fireEvent.click(screen.getByRole("radio", { name: /commit directly/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^commit$/i }));
+    const switchBtn = await screen.findByRole("button", {
+      name: /save as a pull request instead/i,
+    });
+    fireEvent.click(switchBtn);
+    await waitFor(() => {
+      const call = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(call.mode).toBe("pr");
+      // The render-time mode ('direct') must not discard the typed name the
+      // re-run carries.
+      expect(call.branchName).toBe("feature/my-branch");
+    });
+  });
+
+  it("a refused resume surfaces the thrown message, not the canned permission copy (round-1 review)", async () => {
+    // The first stream errors with open-pr; the resume re-run's contribute()
+    // THROWS the ledger's refusal — the thrown message is the description.
+    const openPRContext = {
+      pushOwner: "immediately-run",
+      repository: "docs",
+      branchName: "immediately-run/my-edit-abc1234",
+      base: "main",
+      head: "immediately-run:immediately-run/my-edit-abc1234",
+    };
+    let first = true;
+    const original = sdk.contribute.getMockImplementation();
+    sdk.contribute.mockImplementation(async function* (...args: unknown[]) {
+      if (first) {
+        first = false;
+        yield {
+          stage: "error",
+          message: "Opening the pull request failed",
+          recoverable: true,
+          recovery: "open-pr",
+          openPR: openPRContext,
+        };
+        return;
+      }
+      const over = (args[0] ?? {}) as { resume?: unknown };
+      if (over.resume) {
+        const err = new Error(
+          "This pull-request resume was refused: the context was not issued to this app",
+        ) as Error & { code?: string };
+        err.code = "forbidden";
+        throw err;
+      }
+      yield { stage: "done", commitSha: "c".repeat(40) };
+    });
+    try {
+      render(<Contribute />);
+      fireEvent.click(saveButton());
+      const resume = await screen.findByRole("button", {
+        name: /open the pull request/i,
+      });
+      fireEvent.click(resume);
+      await screen.findByText(/resume was refused/i);
+      expect(
+        screen.queryByText(/you don.t have permission to save here/i),
+      ).toBeNull();
+    } finally {
+      sdk.contribute.mockImplementation(original);
+    }
+  });
+
   it("a retry error renders the message; the existing Save button is the retry affordance", async () => {
     sdk.__setEvents([
       {

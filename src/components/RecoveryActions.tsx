@@ -18,7 +18,13 @@ export interface RecoveryActionsProps {
   setForceUpdate: (v: boolean) => void;
 }
 
-export default function RecoveryActions({ plan, rerun, setMode, forceUpdate, setForceUpdate }: RecoveryActionsProps) {
+export default function RecoveryActions({
+  plan,
+  rerun,
+  setMode,
+  forceUpdate,
+  setForceUpdate,
+}: RecoveryActionsProps) {
   switch (plan.action) {
     case "open-pr":
       // CT-6: the branch is already pushed — resume with the event's context,
@@ -27,7 +33,9 @@ export default function RecoveryActions({ plan, rerun, setMode, forceUpdate, set
         <button
           type="button"
           className="ct-retry"
-          onClick={() => rerun({ resume: { kind: "open-pr", context: plan.context } })}
+          onClick={() =>
+            rerun({ resume: { kind: "open-pr", context: plan.context } })
+          }
         >
           Open the pull request
         </button>
@@ -49,14 +57,15 @@ export default function RecoveryActions({ plan, rerun, setMode, forceUpdate, set
     case "use-different-name":
       return (
         <div className="ct-recovery-hint">
-          <p>The branch name is already taken — edit it above and save again.</p>
+          <p>
+            The branch name is already taken — edit it above and save again.
+          </p>
           {plan.canForce && (
             <label className="ct-radio">
               <input
                 type="checkbox"
                 checked={forceUpdate}
                 onChange={(e) => setForceUpdate(e.target.checked)}
-                aria-label="Update the existing branch instead"
               />
               Update the existing branch instead
             </label>
