@@ -97,12 +97,19 @@ export default function Contribute() {
         branchName,
         mode: over.mode ?? mode,
       });
-      if (!opts.ok) return; // unreachable with the form's disabled-save guard; never wedges
+      // The bail is NOT unreachable (round-2 review): the Save button's
+      // disabled-save guard holds for it, but the recovery buttons and the
+      // needs-install retry reach here with a stale typed name that could be
+      // invalid — the bail is the guard for those paths, wedging nothing.
+      if (!opts.ok) return;
       setPhase({ kind: "running", stage: "starting" });
       // §8.8 (round-1 review): the force rides ONLY the checkbox's own re-run —
       // consume it here, so no later save (and never the CT-6 resume) carries an
-      // unoffered force once the checkbox is unreachable.
-      const forceThisRun = forceUpdate;
+      // unoffered force once the checkbox is unreachable. And only a PR-mode run
+      // can carry it at all (round-2 review): §8.8 is about a caller-supplied branch
+      // name, which a direct commit has none of — a checked box must not ride a
+      // mode-flipped direct save.
+      const forceThisRun = forceUpdate && (over.mode ?? mode) === "pr";
       if (forceThisRun) setForceUpdate(false);
       try {
         const stream = contribute({
@@ -290,7 +297,7 @@ export default function Contribute() {
       </button>
 
       {phase.kind === "needs-install" && (
-        <div className="ct-status ct-install">
+        <div className="ct-status ct-install" role="status">
           <p>
             Install the immediately.run GitHub App on{" "}
             <strong>
@@ -317,7 +324,7 @@ export default function Contribute() {
       )}
 
       {phase.kind === "done" && (
-        <div className="ct-status ct-done">
+        <div className="ct-status ct-done" role="status">
           {phase.result.prUrl ? (
             <p>
               Pull request opened —{" "}

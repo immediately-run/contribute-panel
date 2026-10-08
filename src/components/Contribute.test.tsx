@@ -301,8 +301,9 @@ describe("Contribute — the recovery actions (R3-994, CONTRIBUTE_SPEC §12)", (
       >;
       expect(forced.forceUpdateBranch).toBe(true);
     });
-    // The checkbox's own re-run consumed the force; the next save — with the
-    // checkbox gone (a fresh plan) — carries no unoffered force.
+    // The checkbox's own re-run consumed the force; the next save — the plan
+    // re-rendered the checkbox UNCHECKED (the force consumed by the re-run it
+    // rode) — carries no unoffered force.
     fireEvent.click(saveButton());
     await waitFor(() => {
       const later = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
@@ -310,6 +311,37 @@ describe("Contribute — the recovery actions (R3-994, CONTRIBUTE_SPEC §12)", (
         unknown
       >;
       expect(later.forceUpdateBranch).toBeUndefined();
+    });
+  });
+
+  it("a checked §8.8 force never rides a mode-flipped DIRECT save (round-2 review)", async () => {
+    sdk.__setEvents([
+      {
+        stage: "error",
+        message: "Branch already exists",
+        recoverable: true,
+        recovery: "use-different-name",
+      },
+      { stage: "done", commitSha: "c".repeat(40) },
+    ]);
+    render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "feature/my-branch" } });
+    fireEvent.click(saveButton());
+    await screen.findByText(/branch name is already taken/i);
+    fireEvent.click(
+      screen.getByLabelText(/update the existing branch instead/i),
+    );
+    // Flip to direct and save: §8.8 is about a caller-supplied branch name, which
+    // a direct commit has none of — the checked box must not ride it.
+    fireEvent.click(screen.getByRole("radio", { name: /commit directly/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^commit$/i }));
+    await waitFor(() => {
+      const call = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(call.mode).toBe("direct");
+      expect(call.forceUpdateBranch).toBeUndefined();
     });
   });
 
