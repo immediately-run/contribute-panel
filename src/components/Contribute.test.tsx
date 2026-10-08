@@ -52,6 +52,17 @@ afterEach(() => {
 
 const branchField = () =>
   screen.getByPlaceholderText(/leave empty to use it/i) as HTMLInputElement;
+
+// R3-994: the one module-scope open-pr resume fixture (round-3 review: the second
+// byte-identical copy is hoisted — recovery.test.ts carries the same shape at
+// module scope).
+const openPRContext = {
+  pushOwner: "immediately-run",
+  repository: "docs",
+  branchName: "immediately-run/my-edit-abc1234",
+  base: "main",
+  head: "immediately-run:immediately-run/my-edit-abc1234",
+};
 const saveButton = () =>
   screen.getByRole("button", {
     name: /open pull request/i,
@@ -138,14 +149,6 @@ describe("Contribute — the branch-name input (R3-985)", () => {
 });
 
 describe("Contribute — the recovery actions (R3-994, CONTRIBUTE_SPEC §12)", () => {
-  const openPRContext = {
-    pushOwner: "immediately-run",
-    repository: "docs",
-    branchName: "immediately-run/my-edit-abc1234",
-    base: "main",
-    head: "immediately-run:immediately-run/my-edit-abc1234",
-  };
-
   it("an open-pr error renders the resume button, which re-sends the event's context unchanged", async () => {
     sdk.__setEvents([
       {
@@ -378,13 +381,6 @@ describe("Contribute — the recovery actions (R3-994, CONTRIBUTE_SPEC §12)", (
   it("a refused resume surfaces the thrown message, not the canned permission copy (round-1 review)", async () => {
     // The first stream errors with open-pr; the resume re-run's contribute()
     // THROWS the ledger's refusal — the thrown message is the description.
-    const openPRContext = {
-      pushOwner: "immediately-run",
-      repository: "docs",
-      branchName: "immediately-run/my-edit-abc1234",
-      base: "main",
-      head: "immediately-run:immediately-run/my-edit-abc1234",
-    };
     let first = true;
     const original = sdk.contribute.getMockImplementation();
     sdk.contribute.mockImplementation(async function* (...args: unknown[]) {

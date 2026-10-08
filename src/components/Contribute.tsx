@@ -57,8 +57,9 @@ export default function Contribute() {
   const { dirtyPaths } = useEditorContext();
   const [message, setMessage] = useState("");
   // R3-994 (CONTRIBUTE_SPEC §8.8): the force-update checkbox, offered only after a
-  // `use-different-name` error on a name the user typed; checked rides the next
-  // save as forceUpdateBranch (the host's lineage gate still decides).
+  // `use-different-name` error on a name the user typed; checked rides the
+  // checkbox's own PR-mode re-run as forceUpdateBranch (the host's lineage gate
+  // still decides) — a direct-mode run neither carries nor consumes it.
   const [forceUpdate, setForceUpdate] = useState(false);
   const [branchName, setBranchName] = useState("");
   const [mode, setMode] = useState<ContributeMode>("pr");
@@ -104,13 +105,14 @@ export default function Contribute() {
       if (!opts.ok) return;
       setPhase({ kind: "running", stage: "starting" });
       // §8.8 (round-1 review): the force rides ONLY the checkbox's own re-run —
-      // consume it here, so no later save (and never the CT-6 resume) carries an
-      // unoffered force once the checkbox is unreachable. And only a PR-mode run
-      // can carry it at all (round-2 review): §8.8 is about a caller-supplied branch
+      // consume the checked state on EVERY run (round-3 review: a non-carrying run
+      // must clear it too, or the box's residue attaches invisibly to a later
+      // PR-mode save once the checkbox is unreachable). And only a PR-mode run can
+      // carry it at all (round-2 review): §8.8 is about a caller-supplied branch
       // name, which a direct commit has none of — a checked box must not ride a
       // mode-flipped direct save.
       const forceThisRun = forceUpdate && (over.mode ?? mode) === "pr";
-      if (forceThisRun) setForceUpdate(false);
+      if (forceUpdate) setForceUpdate(false);
       try {
         const stream = contribute({
           ...opts.options,
@@ -354,7 +356,7 @@ export default function Contribute() {
       {phase.kind === "error" && (
         <div className="ct-status ct-error" role="alert">
           {errorHint}
-          {phase.plan && (
+          {phase.plan && (mode === "pr" || phase.plan.action !== "use-different-name") && (
             <RecoveryActions
               plan={phase.plan}
               rerun={run}
