@@ -467,7 +467,7 @@ describe("Contribute — the VcsState save-mode facts (R3-964/986)", () => {
     defaultBranch: "main",
   };
 
-it("(a) an open PR hides the picker and the save button updates it", async () => {
+  it("(a) an open PR hides the picker and the save button updates it", async () => {
     sdk.__setVcs({ openPR: { number: 42, url: "https://github.com/x/y/pull/42" }, target: githubTarget });
     sdk.__setEvents([
       { stage: "done", commitSha: "c".repeat(40), prUrl: "https://github.com/x/y/pull/42", prNumber: 42, mode: "extend-existing", treeSha: "t", branchName: "immediately-run/my-edit-abc1234" },
@@ -505,7 +505,7 @@ it("(a) an open PR hides the picker and the save button updates it", async () =>
     expect(screen.queryByText(/…/)).toBeNull();
   });
 
-    it("(b) a tag load hides the direct radio and shows the rule-2 notice", () => {
+  it("(b) a tag load hides the direct radio and shows the rule-2 notice", () => {
     sdk.__setVcs({ target: { ...githubTarget, ref: "v1.2.3", refKind: "tag" as const } });
     render(<Contribute />);
     screen.getByText(/PR will target default branch main \(loaded ref is a tag\)\./);

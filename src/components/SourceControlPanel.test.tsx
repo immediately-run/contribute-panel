@@ -42,7 +42,9 @@ describe("SourceControlPanel — the save-form lockouts (R3-987)", () => {
   it("a truncated manifest replaces the save form with the truncation banner", () => {
     sdk.__setVcs({ changes: [], branch: null, prs: [], diffLoading: false, manifestTruncated: true });
     render(<SourceControlPanel />);
-    expect(screen.getByTestId("scp-truncated").textContent).toContain("manifest is truncated");
+    expect(screen.getByTestId("scp-truncated").textContent).toContain(
+      "too large to contribute from the browser",
+    );
     expect(screen.queryByTestId("save-form")).toBeNull();
   });
 

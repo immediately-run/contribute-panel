@@ -69,8 +69,9 @@ export default function Contribute() {
   // R3-964/986 (CONTRIBUTE_SPEC §15.0): the save mode facts ride the host's
   // VcsState push — no app-side GitHub call. Absent facts render today's form.
   const vcs = useVcsState();
-  // The default (rule 4) applies ONCE, when the fact first arrives; a choice the
-  // user already made is never overwritten. (Adjusted during render, the
+  // The default (rule 4) applies when the fact first arrives — and re-applies
+  // if the host's answer CHANGES before the user chooses — but never
+  // overwrites a choice the user has made. (Adjusted during render, the
   // sanctioned pattern — an effect's setState is a cascading render, and this
   // app's lint refuses it. `undefined` initially, NOT the first render's
   // value, or a fact present from the start would never apply.)
@@ -100,6 +101,12 @@ export default function Contribute() {
 
   const busy = phase.kind === "running";
   const nothingToSave = dirtyPaths.length === 0;
+  // The direct-commit link, built once from target (R3-986): the done phase's
+  // href and its openExternalLink call share this spelling (R6).
+  const commitUrl =
+    phase.kind === "done" && vcs.target
+      ? `https://github.com/${vcs.target.namespace}/${vcs.target.repository}/commit/${phase.result.commitSha}`
+      : null;
   // R3-985: validate the typed name once non-empty; an invalid one shows the reason
   // inline and disables save. An untouched/empty field never errors.
   // PR mode only: in direct mode the field is unmounted and a stale typed name
@@ -412,19 +419,15 @@ export default function Contribute() {
           ) : (
             <p>
               Committed{" "}
-              {vcs.target ? (
+              {commitUrl ? (
                 <a
                   className="ct-link"
-                  href={`https://github.com/${vcs.target.namespace}/${vcs.target.repository}/commit/${phase.result.commitSha}`}
+                  href={commitUrl}
                   target="_blank"
                   rel="noreferrer"
                   onClick={(ev) => {
                     setLinkError(null);
-                    openExternalLink(
-                      `https://github.com/${vcs.target!.namespace}/${vcs.target!.repository}/commit/${phase.result.commitSha}`,
-                      ev,
-                      setLinkError,
-                    );
+                    openExternalLink(commitUrl, ev, setLinkError);
                   }}
                 >
                   {phase.result.commitSha.slice(0, 7)}

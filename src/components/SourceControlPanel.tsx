@@ -125,12 +125,14 @@ export const SourceControlPanel: React.FC = () => {
             a missing one means there is nothing to save into. Either replaces
             the save form. Both absent → exactly today's form. */}
         {state.manifestTruncated ? (
-          <div className="ct-note" role="alert" data-testid="scp-truncated">
-            This repo's manifest is truncated — saving is disabled until the load is
-            refreshed from a complete manifest.
+          // CONTRIBUTE_SPEC §7's lockout copy, verbatim — truncation is a
+          // property of repo size, so a "refresh" remedy would be a lie.
+          <div className="scp-note" role="alert" data-testid="scp-truncated">
+            This repository is too large to contribute from the browser — use GitHub
+            or your own tools.
           </div>
         ) : state.manifestMissing ? (
-          <div className="ct-note" role="status" data-testid="scp-no-manifest">
+          <div className="scp-note" role="status" data-testid="scp-no-manifest">
             This load has no manifest — saving is unavailable.
           </div>
         ) : (
