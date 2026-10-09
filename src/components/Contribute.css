@@ -145,3 +145,12 @@
   gap: 6px;
   align-items: center;
 }
+
+/* R3-964/986: the save-mode notices (open-PR / rule-2 / fork) — the ct-status
+   block's padding and size without a status colour. */
+.ct-note {
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  background: color-mix(in srgb, #7aa2f7 14%, transparent);
+}

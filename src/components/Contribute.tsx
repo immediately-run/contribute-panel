@@ -105,7 +105,7 @@ export default function Contribute() {
   // PR mode only: in direct mode the field is unmounted and a stale typed name
   // must not silently disable the commit (round-1 review).
   const branchCheck =
-    mode === "pr" && branchName.trim() !== ""
+    mode === "pr" && !openPR && branchName.trim() !== ""
       ? saveOptions({ message, branchName, mode })
       : null;
   const branchError =
@@ -124,7 +124,9 @@ export default function Contribute() {
       // render-time mode would discard the typed branch name the re-run must carry.
       const opts = saveOptions({
         message,
-        branchName,
+        // An openPR run updates the existing branch: the (hidden) branch-name
+        // field's stale value must neither validate nor ride (round-1 review).
+        branchName: openPR ? "" : branchName,
         mode: over.mode ?? mode,
       });
       // The bail is NOT unreachable (round-2 review): the Save button's
@@ -212,7 +214,7 @@ export default function Contribute() {
         });
       }
     },
-    [message, branchName, mode, forceUpdate],
+    [message, branchName, mode, forceUpdate, openPR],
   );
 
   const errorHint = useMemo(() => {
@@ -300,8 +302,9 @@ export default function Contribute() {
         <>
           {nonBranchTarget && vcs.target && (
             <div className="ct-note" role="status">
-              PR will target default branch {vcs.target.defaultBranch ?? "…"} (loaded
-              ref is a {vcs.target.refKind}).
+              {vcs.target.defaultBranch
+                ? `PR will target default branch ${vcs.target.defaultBranch} (loaded ref is a ${vcs.target.refKind}).`
+                : `PR will target the default branch (loaded ref is a ${vcs.target.refKind}).`}
             </div>
           )}
           {noPush && (
@@ -389,7 +392,9 @@ export default function Contribute() {
         <div className="ct-status ct-done" role="status">
           {phase.result.prUrl ? (
             <p>
-              Pull request opened —{" "}
+              {phase.result.mode === "extend-existing"
+                ? "Pull request updated — "
+                : "Pull request opened — "}
               <a
                 className="ct-link"
                 href={phase.result.prUrl}

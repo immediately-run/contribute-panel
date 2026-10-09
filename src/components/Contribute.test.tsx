@@ -467,16 +467,45 @@ describe("Contribute — the VcsState save-mode facts (R3-964/986)", () => {
     defaultBranch: "main",
   };
 
-  it("(a) an open PR hides the picker and the save button updates it", async () => {
+it("(a) an open PR hides the picker and the save button updates it", async () => {
     sdk.__setVcs({ openPR: { number: 42, url: "https://github.com/x/y/pull/42" }, target: githubTarget });
+    sdk.__setEvents([
+      { stage: "done", commitSha: "c".repeat(40), prUrl: "https://github.com/x/y/pull/42", prNumber: 42, mode: "extend-existing", treeSha: "t", branchName: "immediately-run/my-edit-abc1234" },
+    ]);
     render(<Contribute />);
     expect(screen.queryByRole("radiogroup")).toBeNull();
     screen.getByText(/Updating PR #42 on branch immediately-run\/my-edit-abc1234\./);
     fireEvent.click(screen.getByRole("button", { name: /update pr #42/i }));
     await waitFor(() => expect(sdk.contribute).toHaveBeenCalled());
+    // The extend-existing success state reports an UPDATE, not a fresh open.
+    await screen.findByText(/Pull request updated —/);
+    // …and no stale typed branch name rides the update run.
+    const call = sdk.contribute.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(call.branchName).toBeUndefined();
   });
 
-  it("(b) a tag load hides the direct radio and shows the rule-2 notice", () => {
+  it("(a2) a stale typed branch name neither validates nor disables the update run", async () => {
+    // Type an INVALID name first (field visible), then the openPR fact arrives
+    // and hides the field: its stale error must not disable "Update PR #n".
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true });
+    const { rerender } = render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "not a valid name!!" } });
+    screen.getByText(/invalid branch name/i);
+    sdk.__setVcs({ openPR: { number: 42, url: "https://github.com/x/y/pull/42" }, target: githubTarget });
+    rerender(<Contribute />);
+    const update = screen.getByRole("button", { name: /update pr #42/i }) as HTMLButtonElement;
+    expect(update.disabled).toBe(false);
+    expect(screen.queryByText(/invalid branch name/i)).toBeNull();
+  });
+
+  it("(b2) an unresolved defaultBranch reads 'the default branch', never a literal ellipsis", () => {
+    sdk.__setVcs({ target: { ...githubTarget, ref: "v1.2.3", refKind: "tag" as const, defaultBranch: null } });
+    render(<Contribute />);
+    screen.getByText(/PR will target the default branch \(loaded ref is a tag\)\./);
+    expect(screen.queryByText(/…/)).toBeNull();
+  });
+
+    it("(b) a tag load hides the direct radio and shows the rule-2 notice", () => {
     sdk.__setVcs({ target: { ...githubTarget, ref: "v1.2.3", refKind: "tag" as const } });
     render(<Contribute />);
     screen.getByText(/PR will target default branch main \(loaded ref is a tag\)\./);
