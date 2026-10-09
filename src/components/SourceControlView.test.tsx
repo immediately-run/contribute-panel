@@ -115,3 +115,88 @@ describe("SourceControlView", () => {
     expect(other?.hasAttribute("data-selected")).toBe(false);
   });
 });
+
+// R3-987: the VcsState facts — repo header, diff error, warnings, phantoms.
+describe("SourceControlView — the VcsState facts (R3-987)", () => {
+  const withTarget: VcsState = {
+    ...dirtyState,
+    target: {
+      namespace: "acme",
+      repository: "widgets",
+      ref: "feature/x",
+      refKind: "branch",
+      commitSha: "deadbeefcafe",
+      defaultBranch: "main",
+    },
+  };
+
+  it("the repo header shows namespace/repository@ref and the loaded sha7", () => {
+    render(<SourceControlView state={withTarget} onRefresh={() => {}} onReset={() => {}} />);
+    expect(screen.getByText("acme/widgets@feature/x")).toBeTruthy();
+    expect(screen.getByText("deadbee")).toBeTruthy();
+  });
+
+  it("a null commitSha shows the header without the 'Loaded from' line", () => {
+    render(
+      <SourceControlView
+        state={{ ...withTarget, target: { ...withTarget.target!, commitSha: null } }}
+        onRefresh={() => {}}
+        onReset={() => {}}
+      />,
+    );
+    expect(screen.getByText("acme/widgets@feature/x")).toBeTruthy();
+    expect(screen.queryByText(/Loaded from/)).toBeNull();
+  });
+
+  it("an absent target renders exactly today's panel (no header)", () => {
+    render(<SourceControlView state={dirtyState} onRefresh={() => {}} onReset={() => {}} />);
+    expect(screen.queryByTestId("scp-repo-header")).toBeNull();
+  });
+
+  it("the diffError banner informs and does not lock the change list", () => {
+    render(
+      <SourceControlView
+        state={{ ...dirtyState, diffError: "git diff exploded" }}
+        onRefresh={() => {}}
+        onReset={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("scp-diff-error").textContent).toContain("git diff exploded");
+    // …and the last good change list still renders (informs, never locks).
+    expect(screen.getByText("src/added.ts")).toBeTruthy();
+  });
+
+  it("the diffWarnings list renders each warning as path: message", () => {
+    render(
+      <SourceControlView
+        state={{
+          ...dirtyState,
+          diffWarnings: [
+            { kind: "phantom", path: ".immediately.run/x", message: "walked but excluded" },
+            { kind: "other", path: "big.bin", message: "over the size cap" },
+          ],
+        }}
+        onRefresh={() => {}}
+        onReset={() => {}}
+      />,
+    );
+    const list = screen.getByTestId("scp-diff-warnings");
+    expect(list.textContent).toContain(".immediately.run/x: walked but excluded");
+    expect(list.textContent).toContain("big.bin: over the size cap");
+  });
+
+  it("the phantom footer toggle shows and hides excludedPhantoms", () => {
+    render(
+      <SourceControlView
+        state={{ ...dirtyState, excludedPhantoms: [".immediately.run/manifest.json"] }}
+        onRefresh={() => {}}
+        onReset={() => {}}
+      />,
+    );
+    expect(screen.queryByTestId("scp-phantoms")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /show 1 excluded platform file/i }));
+    expect(screen.getByTestId("scp-phantoms").textContent).toContain(".immediately.run/manifest.json");
+    fireEvent.click(screen.getByRole("button", { name: /hide 1 excluded platform file/i }));
+    expect(screen.queryByTestId("scp-phantoms")).toBeNull();
+  });
+});

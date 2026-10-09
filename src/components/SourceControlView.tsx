@@ -83,6 +83,8 @@ export const SourceControlView: React.FC<SourceControlViewProps> = ({
   const [confirmReset, setConfirmReset] = useState(false);
   // A refused outward link (the PR rows) renders here — the one error line.
   const [linkError, setLinkError] = useState<string | null>(null);
+  // R3-987: the phantom-list toggle (the footer button flips it).
+  const [showPhantoms, setShowPhantoms] = useState(false);
   useEffect(() => {
     if (!confirmReset) return;
     const id = setTimeout(() => setConfirmReset(false), RESET_CONFIRM_WINDOW_MS);
@@ -124,6 +126,30 @@ export const SourceControlView: React.FC<SourceControlViewProps> = ({
       </div>
 
       <div className="scp-body">
+        {/* R3-987: the repo header — what this working tree IS. `target` is
+            null exactly when the manifest is missing; absent (undefined) means
+            an older host, and the header renders as before. */}
+        {state.target && (
+          <div className="scp-repo" data-testid="scp-repo-header">
+            <span className="scp-mono">
+              {state.target.namespace}/{state.target.repository}@{state.target.ref}
+            </span>
+            {state.target.commitSha !== null && (
+              <div className="scp-branch-sub">
+                Loaded from <span className="scp-mono">{state.target.commitSha.slice(0, 7)}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* R3-987: the last diff refresh's failure informs; it does not lock
+            the form (the change list below is the last good one). */}
+        {state.diffError && (
+          <div className="scp-branch-sub" role="alert" data-testid="scp-diff-error">
+            The last diff refresh failed: {state.diffError}. The list below may be stale.
+          </div>
+        )}
+
         {branch && (
           <div className="scp-branch">
             <div className="scp-branch-line">
@@ -170,6 +196,17 @@ export const SourceControlView: React.FC<SourceControlViewProps> = ({
           </div>
         )}
 
+        {/* R3-987: the diff's warnings, each as the host spelled it. */}
+        {state.diffWarnings && state.diffWarnings.length > 0 && (
+          <div className="scp-warnings" data-testid="scp-diff-warnings">
+            {state.diffWarnings.map((w, i) => (
+              <div key={`${w.kind}:${w.path}:${i}`} className="scp-branch-sub" role="status">
+                {w.path}: {w.message}
+              </div>
+            ))}
+          </div>
+        )}
+
         {prs.length > 0 && (
           <div className="scp-prs">
             <div className="scp-prs-title">PRs associated with this branch</div>
@@ -203,6 +240,29 @@ export const SourceControlView: React.FC<SourceControlViewProps> = ({
       </div>
 
       <div className="scp-footer">
+        {/* R3-987: the walked-but-excluded platform files, behind a toggle. */}
+        {state.excludedPhantoms && state.excludedPhantoms.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="scp-btn-secondary"
+              aria-expanded={showPhantoms}
+              onClick={() => setShowPhantoms((s) => !s)}
+            >
+              {showPhantoms ? "Hide" : "Show"} {state.excludedPhantoms.length} excluded platform{" "}
+              {state.excludedPhantoms.length === 1 ? "file" : "files"}
+            </button>
+            {showPhantoms && (
+              <div className="scp-phantoms" data-testid="scp-phantoms">
+                {state.excludedPhantoms.map((p) => (
+                  <div key={p} className="scp-mono scp-branch-sub">
+                    {p}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
         <button
           type="button"
           className="scp-btn-secondary"

@@ -7,6 +7,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   contribute,
   useEditorContext,
+  useVcsState,
   type ContributeMode,
   type ContributeOptions,
   type ContributionEvent,
@@ -64,6 +65,34 @@ export default function Contribute() {
   const [branchName, setBranchName] = useState("");
   const [mode, setMode] = useState<ContributeMode>("pr");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+
+  // R3-964/986 (CONTRIBUTE_SPEC §15.0): the save mode facts ride the host's
+  // VcsState push — no app-side GitHub call. Absent facts render today's form.
+  const vcs = useVcsState();
+  // The default (rule 4) applies ONCE, when the fact first arrives; a choice the
+  // user already made is never overwritten. (Adjusted during render, the
+  // sanctioned pattern — an effect's setState is a cascading render, and this
+  // app's lint refuses it. `undefined` initially, NOT the first render's
+  // value, or a fact present from the start would never apply.)
+  const [modeTouched, setModeTouched] = useState(false);
+  const [appliedDefault, setAppliedDefault] = useState<typeof vcs.defaultSaveMode>(undefined);
+  if (vcs.defaultSaveMode !== appliedDefault) {
+    setAppliedDefault(vcs.defaultSaveMode);
+    if (!modeTouched && vcs.defaultSaveMode) setMode(vcs.defaultSaveMode);
+  }
+
+  // Rule 1: an open PR on the loaded branch — the picker hides, the run updates it.
+  const openPR = vcs.openPR ?? null;
+  // Rule 2: a tag/commit load forces a PR against the default branch.
+  const nonBranchTarget = (vcs.target ?? null) !== null && vcs.target!.refKind !== "branch";
+  // Rule 3: no push access upstream forces the fork PR.
+  const noPush = vcs.canPushUpstream === false;
+  // …and while the probe is still out (null), the direct radio is disabled, not
+  // hidden — the choice exists, its answer is not in yet.
+  const pushUnknown = vcs.canPushUpstream === null;
+  const directHidden = openPR !== null || nonBranchTarget || noPush;
+  // A hidden radio can't stay checked (same render-time adjustment as above).
+  if (directHidden && mode === "direct") setMode("pr");
   // A refused outward link (the install/PR anchors) renders here — BESIDE the
   // current phase, never instead of it: an error phase would unmount the very
   // link + retry the user needs.
@@ -244,7 +273,7 @@ export default function Contribute() {
         />
       </label>
 
-      {mode === "pr" && (
+      {mode === "pr" && !openPR && (
         <label className="ct-field">
           <span className="ct-label">Branch name</span>
           <input
@@ -262,28 +291,57 @@ export default function Contribute() {
         </label>
       )}
 
-      <div className="ct-mode" role="radiogroup" aria-label="Save mode">
-        <label className="ct-radio">
-          <input
-            type="radio"
-            name="mode"
-            checked={mode === "pr"}
-            onChange={() => setMode("pr")}
-            disabled={busy}
-          />
-          Pull request
-        </label>
-        <label className="ct-radio">
-          <input
-            type="radio"
-            name="mode"
-            checked={mode === "direct"}
-            onChange={() => setMode("direct")}
-            disabled={busy}
-          />
-          Commit directly
-        </label>
-      </div>
+      {openPR ? (
+        <div className="ct-note" role="status">
+          Updating PR #{openPR.number}
+          {vcs.target ? ` on branch ${vcs.target.ref}` : ""}.
+        </div>
+      ) : (
+        <>
+          {nonBranchTarget && vcs.target && (
+            <div className="ct-note" role="status">
+              PR will target default branch {vcs.target.defaultBranch ?? "…"} (loaded
+              ref is a {vcs.target.refKind}).
+            </div>
+          )}
+          {noPush && (
+            <div className="ct-note" role="status">
+              No push access to {vcs.target ? `${vcs.target.namespace}/${vcs.target.repository}` : "the upstream repository"}{" "}
+              — the PR opens from your fork.
+            </div>
+          )}
+          <div className="ct-mode" role="radiogroup" aria-label="Save mode">
+            <label className="ct-radio">
+              <input
+                type="radio"
+                name="mode"
+                checked={mode === "pr"}
+                onChange={() => {
+                  setMode("pr");
+                  setModeTouched(true);
+                }}
+                disabled={busy}
+              />
+              Pull request
+            </label>
+            {!directHidden && (
+              <label className="ct-radio">
+                <input
+                  type="radio"
+                  name="mode"
+                  checked={mode === "direct"}
+                  onChange={() => {
+                    setMode("direct");
+                    setModeTouched(true);
+                  }}
+                  disabled={busy || pushUnknown}
+                />
+                Commit directly
+              </label>
+            )}
+          </div>
+        </>
+      )}
 
       <button
         type="button"
@@ -293,9 +351,11 @@ export default function Contribute() {
       >
         {busy
           ? (STAGE_LABEL[phase.stage] ?? "Saving…")
-          : mode === "direct"
-            ? "Commit"
-            : "Open pull request"}
+          : openPR
+            ? `Update PR #${openPR.number}`
+            : mode === "direct"
+              ? "Commit"
+              : "Open pull request"}
       </button>
 
       {phase.kind === "needs-install" && (
@@ -346,8 +406,28 @@ export default function Contribute() {
             </p>
           ) : (
             <p>
-              Committed {phase.result.commitSha.slice(0, 7)} to{" "}
-              {phase.result.branchName}.
+              Committed{" "}
+              {vcs.target ? (
+                <a
+                  className="ct-link"
+                  href={`https://github.com/${vcs.target.namespace}/${vcs.target.repository}/commit/${phase.result.commitSha}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(ev) => {
+                    setLinkError(null);
+                    openExternalLink(
+                      `https://github.com/${vcs.target!.namespace}/${vcs.target!.repository}/commit/${phase.result.commitSha}`,
+                      ev,
+                      setLinkError,
+                    );
+                  }}
+                >
+                  {phase.result.commitSha.slice(0, 7)}
+                </a>
+              ) : (
+                phase.result.commitSha.slice(0, 7)
+              )}{" "}
+              to {phase.result.branchName}.
             </p>
           )}
         </div>
