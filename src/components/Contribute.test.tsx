@@ -469,8 +469,10 @@ describe("Contribute — the VcsState save-mode facts (R3-964/986)", () => {
 
   it("(a) an open PR hides the picker and the save button updates it", async () => {
     sdk.__setVcs({ openPR: { number: 42, url: "https://github.com/x/y/pull/42" }, target: githubTarget });
+    // The REAL wire shape: the done event carries neither mode nor branchName
+    // (round-2 review) — the update copy keys on the openPR fact at run start.
     sdk.__setEvents([
-      { stage: "done", commitSha: "c".repeat(40), prUrl: "https://github.com/x/y/pull/42", prNumber: 42, mode: "extend-existing", treeSha: "t", branchName: "immediately-run/my-edit-abc1234" },
+      { stage: "done", commitSha: "c".repeat(40), prUrl: "https://github.com/x/y/pull/42", prNumber: 42 },
     ]);
     render(<Contribute />);
     expect(screen.queryByRole("radiogroup")).toBeNull();
@@ -529,10 +531,18 @@ describe("Contribute — the VcsState save-mode facts (R3-964/986)", () => {
 
   it("(d) a direct commit links the new commit, built from target", async () => {
     sdk.__setVcs({ target: githubTarget, canPushUpstream: true, defaultSaveMode: "direct" });
+    // The real direct-commit stream: commit-pushed carries the ref; the done
+    // event carries no branchName (round-2 review).
+    sdk.__setEvents([
+      { stage: "commit-pushed", commitSha: "c".repeat(40), ref: "immediately-run/my-edit-abc1234" },
+      { stage: "done", commitSha: "c".repeat(40) },
+    ]);
     render(<Contribute />);
     fireEvent.click(screen.getByRole("button", { name: /^commit$/i }));
     const link = (await screen.findByRole("link")) as HTMLAnchorElement;
     expect(link.href).toBe(`https://github.com/immediately-run/docs/commit/${"c".repeat(40)}`);
+    // The full sentence, not 'to undefined': the ref comes from commit-pushed.
+    await screen.findByText(/to immediately-run\/my-edit-abc1234\./);
   });
 
   it("(e) a plain new PR: the picker shows both radios and opens a PR", async () => {

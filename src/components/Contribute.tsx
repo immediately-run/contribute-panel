@@ -31,7 +31,16 @@ export type Phase =
       targetOwner: string;
       targetRepo: string;
     }
-  | { kind: "done"; result: ContributionResult }
+  | {
+      kind: "done";
+      result: ContributionResult;
+      /** The PR this run UPDATED (the openPR fact at run start) — the wire's
+       *  done event carries no mode, so the update copy keys on this. */
+      updatedPr: number | null;
+      /** The ref a direct commit landed on (the commit-pushed event, else the
+       *  target's) — the done event carries no branchName either. */
+      committedRef: string | null;
+    }
   // R3-994: the error phase carries the recovery plan (from the event's
   // `recovery` field + whether the branch name was typed) and the event's real
   // code when there is one — the event carries none, the catch path carries the
@@ -142,6 +151,11 @@ export default function Contribute() {
       // invalid — the bail is the guard for those paths, wedging nothing.
       if (!opts.ok) return;
       setPhase({ kind: "running", stage: "starting" });
+      // The done event carries neither mode nor branchName (the wire shape),
+      // so the success copy keys on facts captured HERE: the openPR at run
+      // start (an update, not a fresh open) and the commit-pushed ref.
+      const updatingPr = openPR?.number ?? null;
+      let pushedRef: string | null = null;
       // §8.8 (round-1 review): the force rides ONLY the checkbox's own re-run —
       // consume the checked state on EVERY run (round-3 review: a non-carrying run
       // must clear it too, or the box's residue attaches invisibly to a later
@@ -190,6 +204,9 @@ export default function Contribute() {
             });
             return;
           }
+          if (ev.stage === "commit-pushed") {
+            pushedRef = (ev as { ref?: string }).ref ?? null;
+          }
           if (ev.stage === "done") {
             result = ev as unknown as ContributionResult;
           }
@@ -206,6 +223,8 @@ export default function Contribute() {
               branchName: "",
               mode: "new-branch-pr",
             } as ContributionResult),
+          updatedPr: updatingPr,
+          committedRef: pushedRef ?? vcs.target?.ref ?? null,
         });
       } catch (e) {
         const code = (e as { code?: string })?.code ?? "unknown";
@@ -221,7 +240,7 @@ export default function Contribute() {
         });
       }
     },
-    [message, branchName, mode, forceUpdate, openPR],
+    [message, branchName, mode, forceUpdate, openPR, vcs.target?.ref],
   );
 
   const errorHint = useMemo(() => {
@@ -399,7 +418,7 @@ export default function Contribute() {
         <div className="ct-status ct-done" role="status">
           {phase.result.prUrl ? (
             <p>
-              {phase.result.mode === "extend-existing"
+              {phase.updatedPr !== null
                 ? "Pull request updated — "
                 : "Pull request opened — "}
               <a
@@ -435,7 +454,7 @@ export default function Contribute() {
               ) : (
                 phase.result.commitSha.slice(0, 7)
               )}{" "}
-              to {phase.result.branchName}.
+              {phase.committedRef ? ` to ${phase.committedRef}` : ""}.
             </p>
           )}
         </div>
