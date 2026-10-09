@@ -121,7 +121,23 @@ export const SourceControlPanel: React.FC = () => {
         selectedPath={selectedPath}
       />
       <div className="scp-save-region">
-        <Contribute />
+        {/* R3-987: a truncated manifest locks saving OUT (CONTRIBUTE_SPEC §7);
+            a missing one means there is nothing to save into. Either replaces
+            the save form. Both absent → exactly today's form. */}
+        {state.manifestTruncated ? (
+          // CONTRIBUTE_SPEC §7's lockout copy, verbatim — truncation is a
+          // property of repo size, so a "refresh" remedy would be a lie.
+          <div className="scp-note" role="alert" data-testid="scp-truncated">
+            This repository is too large to contribute from the browser — use GitHub
+            or your own tools.
+          </div>
+        ) : state.manifestMissing ? (
+          <div className="scp-note" role="status" data-testid="scp-no-manifest">
+            This load has no manifest — saving is unavailable.
+          </div>
+        ) : (
+          <Contribute />
+        )}
       </div>
     </div>
   );

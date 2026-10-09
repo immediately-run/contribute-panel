@@ -19,6 +19,9 @@ vi.mock("@immediately-run/sdk", () => {
   let events: Record<string, unknown>[] = [
     { stage: "done", commitSha: "c".repeat(40) },
   ];
+  // R3-964/986: the VcsState facts double — settable per test (default: every
+  // fact absent, i.e. today's form).
+  let vcs: Record<string, unknown> = {};
   const contribute = vi.fn(async function* () {
     for (const ev of events) yield { ...ev };
   });
@@ -29,8 +32,12 @@ vi.mock("@immediately-run/sdk", () => {
     __setEvents: (next: Record<string, unknown>[]) => {
       events = next;
     },
+    __setVcs: (next: Record<string, unknown>) => {
+      vcs = next;
+    },
     contribute,
     useEditorContext: () => ({ dirtyPaths: dirty }),
+    useVcsState: () => vcs,
     openExternal: vi.fn(async () => ({ ok: true })),
   };
 });
@@ -40,6 +47,7 @@ import Contribute from "./Contribute";
 const sdk = (await import("@immediately-run/sdk")) as unknown as {
   __setDirty: (paths: string[]) => void;
   __setEvents: (events: Record<string, unknown>[]) => void;
+  __setVcs: (next: Record<string, unknown>) => void;
   contribute: ReturnType<typeof vi.fn>;
 };
 
@@ -48,6 +56,7 @@ afterEach(() => {
   sdk.contribute.mockClear();
   sdk.__setDirty(["src/a.ts"]);
   sdk.__setEvents([{ stage: "done", commitSha: "c".repeat(40) }]);
+  sdk.__setVcs({});
 });
 
 const branchField = () =>
@@ -443,5 +452,137 @@ describe("Contribute — the recovery actions (R3-994, CONTRIBUTE_SPEC §12)", (
       expect(call.resume).toBeUndefined();
       expect(call.forceUpdateBranch).toBeUndefined();
     });
+  });
+});
+
+// R3-964/986 (CONTRIBUTE_SPEC §15.0): the save-mode facts from the host's
+// VcsState push. The double drives each case; no app-side GitHub call exists.
+describe("Contribute — the VcsState save-mode facts (R3-964/986)", () => {
+  const githubTarget = {
+    namespace: "immediately-run",
+    repository: "docs",
+    ref: "immediately-run/my-edit-abc1234",
+    refKind: "branch" as const,
+    commitSha: "a".repeat(40),
+    defaultBranch: "main",
+  };
+
+  it("(a) an open PR hides the picker and the save button updates it", async () => {
+    sdk.__setVcs({ openPR: { number: 42, url: "https://github.com/x/y/pull/42" }, target: githubTarget });
+    // The REAL wire shape: the done event carries neither mode nor branchName
+    // (round-2 review) — the update copy keys on the openPR fact at run start.
+    sdk.__setEvents([
+      { stage: "done", commitSha: "c".repeat(40), prUrl: "https://github.com/x/y/pull/42", prNumber: 42 },
+    ]);
+    render(<Contribute />);
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    screen.getByText(/Updating PR #42 on branch immediately-run\/my-edit-abc1234\./);
+    fireEvent.click(screen.getByRole("button", { name: /update pr #42/i }));
+    await waitFor(() => expect(sdk.contribute).toHaveBeenCalled());
+    // The extend-existing success state reports an UPDATE, not a fresh open.
+    await screen.findByText(/Pull request updated —/);
+    // …and no stale typed branch name rides the update run.
+    const call = sdk.contribute.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(call.branchName).toBeUndefined();
+  });
+
+  it("(a2) a stale typed branch name neither validates nor disables the update run", async () => {
+    // Type an INVALID name first (field visible), then the openPR fact arrives
+    // and hides the field: its stale error must not disable "Update PR #n".
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true });
+    const { rerender } = render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "not a valid name!!" } });
+    screen.getByText(/invalid branch name/i);
+    sdk.__setVcs({ openPR: { number: 42, url: "https://github.com/x/y/pull/42" }, target: githubTarget });
+    rerender(<Contribute />);
+    const update = screen.getByRole("button", { name: /update pr #42/i }) as HTMLButtonElement;
+    expect(update.disabled).toBe(false);
+    expect(screen.queryByText(/invalid branch name/i)).toBeNull();
+  });
+
+  it("(b2) an unresolved defaultBranch reads 'the default branch', never a literal ellipsis", () => {
+    sdk.__setVcs({ target: { ...githubTarget, ref: "v1.2.3", refKind: "tag" as const, defaultBranch: null } });
+    render(<Contribute />);
+    screen.getByText(/PR will target the default branch \(loaded ref is a tag\)\./);
+    expect(screen.queryByText(/…/)).toBeNull();
+  });
+
+  it("(b) a tag load hides the direct radio and shows the rule-2 notice", () => {
+    sdk.__setVcs({ target: { ...githubTarget, ref: "v1.2.3", refKind: "tag" as const } });
+    render(<Contribute />);
+    screen.getByText(/PR will target default branch main \(loaded ref is a tag\)\./);
+    expect(screen.queryByRole("radio", { name: /commit directly/i })).toBeNull();
+    expect((screen.getByRole("radio", { name: /pull request/i }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("(c) canPushUpstream: false hides the direct radio and shows the fork notice", () => {
+    sdk.__setVcs({ canPushUpstream: false, target: githubTarget });
+    render(<Contribute />);
+    screen.getByText(/No push access to immediately-run\/docs — the PR opens from your fork\./);
+    expect(screen.queryByRole("radio", { name: /commit directly/i })).toBeNull();
+  });
+
+  it("canPushUpstream: null disables the direct radio without hiding it", () => {
+    sdk.__setVcs({ canPushUpstream: null });
+    render(<Contribute />);
+    const direct = screen.getByRole("radio", { name: /commit directly/i }) as HTMLInputElement;
+    expect(direct.disabled).toBe(true);
+  });
+
+  it("(d) a direct commit links the new commit, built from target", async () => {
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true, defaultSaveMode: "direct" });
+    // The real direct-commit stream: commit-pushed carries the ref; the done
+    // event carries no branchName (round-2 review).
+    sdk.__setEvents([
+      { stage: "commit-pushed", commitSha: "c".repeat(40), ref: "immediately-run/my-edit-abc1234" },
+      { stage: "done", commitSha: "c".repeat(40) },
+    ]);
+    render(<Contribute />);
+    fireEvent.click(screen.getByRole("button", { name: /^commit$/i }));
+    const link = (await screen.findByRole("link")) as HTMLAnchorElement;
+    expect(link.href).toBe(`https://github.com/immediately-run/docs/commit/${"c".repeat(40)}`);
+    // The full sentence, not 'to undefined': the ref comes from commit-pushed.
+    await screen.findByText(/to immediately-run\/my-edit-abc1234\./);
+  });
+
+  it("(e) a plain new PR: the picker shows both radios and opens a PR", async () => {
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true, openPR: null });
+    render(<Contribute />);
+    expect((screen.getByRole("radio", { name: /pull request/i }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: /commit directly/i }) as HTMLInputElement).disabled).toBe(false);
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(sdk.contribute).toHaveBeenCalled());
+  });
+
+  it("defaultSaveMode: 'direct' preselects direct; absent stays pr", () => {
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true, defaultSaveMode: "direct" });
+    const { unmount } = render(<Contribute />);
+    expect((screen.getByRole("radio", { name: /commit directly/i }) as HTMLInputElement).checked).toBe(true);
+    unmount();
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true });
+    render(<Contribute />);
+    expect((screen.getByRole("radio", { name: /pull request/i }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("a user's choice is never overwritten by a later defaultSaveMode push", () => {
+    // The host's default arrives first (pr), the user picks direct, and a
+    // re-render with the same facts must not flip it back.
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true });
+    const { rerender } = render(<Contribute />);
+    fireEvent.click(screen.getByRole("radio", { name: /commit directly/i }));
+    expect((screen.getByRole("radio", { name: /commit directly/i }) as HTMLInputElement).checked).toBe(true);
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true, defaultSaveMode: "pr" });
+    rerender(<Contribute />);
+    expect((screen.getByRole("radio", { name: /commit directly/i }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("every fact absent renders today's form", () => {
+    sdk.__setVcs({});
+    render(<Contribute />);
+    expect((screen.getByRole("radio", { name: /pull request/i }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: /commit directly/i }) as HTMLInputElement).disabled).toBe(false);
+    expect(screen.queryByText(/Updating PR/)).toBeNull();
+    expect(screen.queryByText(/PR will target/)).toBeNull();
+    expect(screen.queryByText(/No push access/)).toBeNull();
   });
 });
