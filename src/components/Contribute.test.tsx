@@ -699,6 +699,24 @@ describe("Contribute — the transcript request checkbox (R3-659)", () => {
     expect(transcriptBox().checked).toBe(false);
   });
 
+  it("a tick does not survive the session fact being withdrawn and returning, with no run between", async () => {
+    sdk.__setVcs({ agentSession });
+    const view = render(<Contribute />);
+    fireEvent.click(transcriptBox());
+    expect(transcriptBox().checked).toBe(true);
+    sdk.__setVcs({});
+    view.rerender(<Contribute />);
+    expect(queryTranscriptBox()).toBeNull();
+    // A later session (another conversation) brings the control back unchecked…
+    sdk.__setVcs({ agentSession: { ...agentSession, conversationId: "c2" } });
+    view.rerender(<Contribute />);
+    expect(transcriptBox().checked).toBe(false);
+    // …and the run that follows carries no hint.
+    fireEvent.click(saveButton());
+    await screen.findByText(/Committed/);
+    expect(sentParams(0)).not.toHaveProperty("transcriptRequested");
+  });
+
   it("the box is disabled while a save is in flight", async () => {
     sdk.__setVcs({ agentSession });
     let release!: () => void;
