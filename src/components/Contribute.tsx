@@ -72,6 +72,10 @@ export default function Contribute() {
   // still decides) — a direct-mode run neither carries nor consumes it.
   const [forceUpdate, setForceUpdate] = useState(false);
   const [branchName, setBranchName] = useState("");
+  // CONTRIBUTE_TRANSCRIPT_SPEC §4 R-CT-5/8: the "Commit session transcript"
+  // request hint. Unchecked by default, held in component state only (never
+  // stored), and consumed by every run — the host's own review is the consent.
+  const [transcriptRequested, setTranscriptRequested] = useState(false);
   const [mode, setMode] = useState<ContributeMode>("pr");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
@@ -110,6 +114,14 @@ export default function Contribute() {
 
   const busy = phase.kind === "running";
   const nothingToSave = dirtyPaths.length === 0;
+  // R-CT-3: the checkbox exists only while the host projects a qualifying agent
+  // session — no session renders no control, not a disabled one.
+  const hasAgentSession = (vcs.agentSession ?? null) !== null;
+  // A tick belongs to the control the user saw: when the fact is withdrawn the
+  // control unmounts and the tick goes with it, so a box that comes back with a
+  // later session starts unchecked (the same render-time adjustment as the
+  // hidden direct radio above).
+  if (!hasAgentSession && transcriptRequested) setTranscriptRequested(false);
   // The direct-commit link, built once from target (R3-986): the done phase's
   // href and its openExternalLink call share this spelling (R6).
   const commitUrl =
@@ -127,6 +139,9 @@ export default function Contribute() {
   const branchError =
     branchCheck && !branchCheck.ok ? branchCheck.reason : null;
 
+  // Hoisted: the compiler's dep inference wants the member expression, not a
+  // property path into it (react-hooks/preserve-manual-memoization).
+  const targetRef = vcs.target?.ref ?? null;
   // R3-994: `over` is a recovery action's override — the CT-6 resume context, a
   // switch-to-pr mode, or nothing (the Save button's own re-run). The §8.8 force
   // rides as the checkbox state; every re-run goes through the same validation.
@@ -144,6 +159,7 @@ export default function Contribute() {
         // field's stale value must neither validate nor ride (round-1 review).
         branchName: openPR ? "" : branchName,
         mode: over.mode ?? mode,
+        transcriptRequested,
       });
       // The bail is NOT unreachable (round-2 review): the Save button's
       // disabled-save guard holds for it, but the recovery buttons and the
@@ -165,6 +181,10 @@ export default function Contribute() {
       // mode-flipped direct save.
       const forceThisRun = forceUpdate && (over.mode ?? mode) === "pr";
       if (forceUpdate) setForceUpdate(false);
+      // R-CT-8: the transcript hint is spent on use — cleared before the call, so
+      // a run that fails or needs the App installed re-asks rather than silently
+      // re-sending, and the next contribution starts unchecked.
+      if (transcriptRequested) setTranscriptRequested(false);
       try {
         const stream = contribute({
           ...opts.options,
@@ -224,7 +244,7 @@ export default function Contribute() {
               mode: "new-branch-pr",
             } as ContributionResult),
           updatedPr: updatingPr,
-          committedRef: pushedRef ?? vcs.target?.ref ?? null,
+          committedRef: pushedRef ?? targetRef,
         });
       } catch (e) {
         const code = (e as { code?: string })?.code ?? "unknown";
@@ -240,7 +260,7 @@ export default function Contribute() {
         });
       }
     },
-    [message, branchName, mode, forceUpdate, openPR, vcs.target?.ref],
+    [message, branchName, mode, forceUpdate, transcriptRequested, openPR, targetRef],
   );
 
   const errorHint = useMemo(() => {
@@ -370,6 +390,18 @@ export default function Contribute() {
             )}
           </div>
         </>
+      )}
+
+      {hasAgentSession && (
+        <label className="ct-radio">
+          <input
+            type="checkbox"
+            checked={transcriptRequested}
+            onChange={(e) => setTranscriptRequested(e.target.checked)}
+            disabled={busy}
+          />
+          Commit session transcript
+        </label>
       )}
 
       <button

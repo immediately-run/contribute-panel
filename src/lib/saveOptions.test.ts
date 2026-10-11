@@ -30,4 +30,34 @@ describe('saveOptions (R3-985)', () => {
     const r = saveOptions({ message: 'x', branchName: 'has space', mode: 'direct' });
     expect(r).toEqual({ ok: true, options: { commitMessage: 'x', mode: 'direct' } });
   });
+
+  // R3-659 (CONTRIBUTE_TRANSCRIPT_SPEC §4 R-CT-5/6): the request hint.
+  it('a requested transcript adds exactly transcriptRequested: true — nothing else transcript-shaped', () => {
+    const r = saveOptions({ message: 'x', branchName: '', mode: 'pr', transcriptRequested: true });
+    expect(r).toEqual({
+      ok: true,
+      options: { commitMessage: 'x', mode: 'pr', transcriptRequested: true },
+    });
+  });
+
+  it('an unrequested transcript sends no hint key at all — false and absent alike', () => {
+    for (const transcriptRequested of [false, undefined]) {
+      const r = saveOptions({ message: 'x', branchName: '', mode: 'pr', transcriptRequested });
+      expect(r).toEqual({ ok: true, options: { commitMessage: 'x', mode: 'pr' } });
+      expect('transcriptRequested' in (r as { options: object }).options).toBe(false);
+    }
+  });
+
+  it('the hint rides a direct-mode run too — the host, not the app, decides it gets no offer', () => {
+    const r = saveOptions({ message: 'x', branchName: '', mode: 'direct', transcriptRequested: true });
+    expect(r).toEqual({
+      ok: true,
+      options: { commitMessage: 'x', mode: 'direct', transcriptRequested: true },
+    });
+  });
+
+  it('an invalid branch name still refuses the run when the hint is set', () => {
+    const r = saveOptions({ message: 'x', branchName: 'has space', mode: 'pr', transcriptRequested: true });
+    expect(r.ok).toBe(false);
+  });
 });
