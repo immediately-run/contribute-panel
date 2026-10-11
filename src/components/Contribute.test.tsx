@@ -1,95 +1,717 @@
 /// <reference types="vitest/globals" />
-// R3-659 (CONTRIBUTE_TRANSCRIPT_SPEC §4 R-CT-3/5/6/8): the "Commit session
-// transcript" checkbox — rendered iff the host projects a qualifying
-// agentSession, default-unchecked, spent on use, and a checked run sends
-// exactly transcriptRequested: true.
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
-import type { VcsState } from "@immediately-run/sdk";
-import Contribute from "./Contribute";
-
-afterEach(cleanup);
-
-let vcsState: VcsState;
-let contributeCalls: Record<string, unknown>[];
+// Contribute (the save form) — R3-985: the branch-name input. Driven with a mocked
+// SDK: a typed valid name rides along to contribute(), an invalid one shows the
+// reason and disables save, an empty field sends no branchName, and the field is
+// disabled while a save is in flight.
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  waitFor,
+} from "@testing-library/react";
 
 vi.mock("@immediately-run/sdk", () => {
+  let dirty: string[] = ["src/a.ts"];
+  // R3-994: the double's stream is settable per test, so the recovery cases can
+  // stream real error events (each `recovery` value, with and without the
+  // open-pr context) and the done cases keep the default.
+  let events: Record<string, unknown>[] = [
+    { stage: "done", commitSha: "c".repeat(40) },
+  ];
+  // R3-964/986: the VcsState facts double — settable per test (default: every
+  // fact absent, i.e. today's form).
+  let vcs: Record<string, unknown> = {};
+  const contribute = vi.fn(async function* () {
+    for (const ev of events) yield { ...ev };
+  });
   return {
-    useVcsState: () => vcsState,
-    useEditorContext: () => ({ dirtyPaths: ["src/a.ts"] }),
-    contribute: (opts: Record<string, unknown>) => {
-      contributeCalls.push(opts);
-      return (async function* () {
-        yield { stage: "done", commitSha: "abc1234", treeSha: "t", branchName: "b", mode: "new-branch-pr" };
-      })();
+    __setDirty: (paths: string[]) => {
+      dirty = paths;
     },
+    __setEvents: (next: Record<string, unknown>[]) => {
+      events = next;
+    },
+    __setVcs: (next: Record<string, unknown>) => {
+      vcs = next;
+    },
+    contribute,
+    useEditorContext: () => ({ dirtyPaths: dirty }),
+    useVcsState: () => vcs,
+    openExternal: vi.fn(async () => ({ ok: true })),
   };
 });
 
-const NO_SESSION: VcsState = { changes: [], branch: null, prs: [], diffLoading: false };
-const WITH_SESSION: VcsState = {
-  ...NO_SESSION,
-  agentSession: { repo: "acme/notes", conversationId: "c1", messageCount: 3, running: false },
+import Contribute from "./Contribute";
+
+const sdk = (await import("@immediately-run/sdk")) as unknown as {
+  __setDirty: (paths: string[]) => void;
+  __setEvents: (events: Record<string, unknown>[]) => void;
+  __setVcs: (next: Record<string, unknown>) => void;
+  contribute: ReturnType<typeof vi.fn>;
 };
 
-const checkTheBox = async () => {
-  fireEvent.click(screen.getByRole("checkbox", { name: "Commit session transcript" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open pull request" }));
-  await waitFor(() => expect(screen.getByText(/Pull request opened|Committed/)).toBeTruthy());
-};
+afterEach(() => {
+  cleanup();
+  sdk.contribute.mockClear();
+  sdk.__setDirty(["src/a.ts"]);
+  sdk.__setEvents([{ stage: "done", commitSha: "c".repeat(40) }]);
+  sdk.__setVcs({});
+});
 
-describe("Contribute — the transcript request checkbox (R3-659)", () => {
-  beforeEach(() => {
-    contributeCalls = [];
-    vcsState = WITH_SESSION;
+const branchField = () =>
+  screen.getByPlaceholderText(/leave empty to use it/i) as HTMLInputElement;
+
+// R3-994: the one module-scope open-pr resume fixture (round-3 review: the second
+// byte-identical copy is hoisted — recovery.test.ts carries the same shape at
+// module scope).
+const openPRContext = {
+  pushOwner: "immediately-run",
+  repository: "docs",
+  branchName: "immediately-run/my-edit-abc1234",
+  base: "main",
+  head: "immediately-run:immediately-run/my-edit-abc1234",
+};
+const saveButton = () =>
+  screen.getByRole("button", {
+    name: /open pull request/i,
+  }) as HTMLButtonElement;
+
+describe("Contribute — the branch-name input (R3-985)", () => {
+  it("renders in PR mode, not in direct mode", () => {
+    render(<Contribute />);
+    expect(branchField()).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: /commit directly/i }));
+    expect(screen.queryByPlaceholderText(/leave empty to use it/i)).toBeNull();
   });
 
-  it("renders iff VcsState.agentSession is present — absent, not disabled, otherwise (R-CT-3)", () => {
+  it("a typed valid name is sent as branchName", async () => {
     render(<Contribute />);
-    expect(screen.getByRole("checkbox", { name: "Commit session transcript" })).toBeTruthy();
+    fireEvent.change(branchField(), { target: { value: "feature/my-branch" } });
+    fireEvent.click(saveButton());
+    await screen
+      .findByText(/pull request|committed/i, {}, { timeout: 2000 })
+      .catch(() => {});
+    expect(sdk.contribute).toHaveBeenCalledWith(
+      expect.objectContaining({ branchName: "feature/my-branch", mode: "pr" }),
+    );
+  });
 
-    cleanup();
-    vcsState = NO_SESSION;
+  it("an empty field sends no branchName (the host generates the default)", async () => {
     render(<Contribute />);
-    expect(screen.queryByRole("checkbox", { name: "Commit session transcript" })).toBeNull();
-    expect(screen.queryByText("Commit session transcript")).toBeNull();
+    fireEvent.click(saveButton());
+    await waitForContribute();
+    const arg = sdk.contribute.mock.calls[0][0] as Record<string, unknown>;
+    expect("branchName" in arg).toBe(false);
+  });
+
+  it("an invalid name shows the reason inline and disables save", () => {
+    render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "feature/~bad:name" } });
+    expect(
+      screen.getByText(/Invalid branch name: contains an invalid character/),
+    ).toBeTruthy();
+    expect(saveButton().disabled).toBe(true);
+    expect(sdk.contribute).not.toHaveBeenCalled();
+  });
+
+  it("an untouched field never shows the error", () => {
+    render(<Contribute />);
+    expect(screen.queryByText(/Invalid branch name/)).toBeNull();
+    expect(saveButton().disabled).toBe(false);
+  });
+
+  it("the field is disabled while a save is in flight", async () => {
+    // A never-settling stream holds the running phase.
+    sdk.contribute.mockImplementationOnce(async function* () {
+      yield { stage: "starting" };
+      await new Promise(() => {});
+    });
+    render(<Contribute />);
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(branchField().disabled).toBe(true));
+  });
+
+  it("a stale invalid name does not touch direct mode (round-1 review)", async () => {
+    render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "has space" } });
+    fireEvent.click(screen.getByRole("radio", { name: /commit directly/i }));
+    // The error and the field are gone, and Commit is enabled.
+    expect(screen.queryByText(/Invalid branch name/)).toBeNull();
+    const commit = screen.getByRole("button", {
+      name: /^commit$/i,
+    }) as HTMLButtonElement;
+    expect(commit.disabled).toBe(false);
+    fireEvent.click(commit);
+    await waitFor(() => expect(sdk.contribute).toHaveBeenCalled());
+    const arg = sdk.contribute.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.mode).toBe("direct");
+    expect("branchName" in arg).toBe(false);
+  });
+
+  async function waitForContribute() {
+    await screen
+      .findByText(/committed|pull request/i, {}, { timeout: 2000 })
+      .catch(() => {});
+    expect(sdk.contribute).toHaveBeenCalled();
+  }
+});
+
+describe("Contribute — the recovery actions (R3-994, CONTRIBUTE_SPEC §12)", () => {
+  it("an open-pr error renders the resume button, which re-sends the event's context unchanged", async () => {
+    sdk.__setEvents([
+      {
+        stage: "error",
+        message: "Opening the pull request failed",
+        recoverable: true,
+        recovery: "open-pr",
+        openPR: openPRContext,
+      },
+    ]);
+    render(<Contribute />);
+    fireEvent.click(saveButton());
+    const resume = await screen.findByRole("button", {
+      name: /open the pull request/i,
+    });
+    fireEvent.click(resume);
+    await screen
+      .findByRole(
+        "button",
+        { name: /open pull request/i },
+        {},
+        { timeout: 2000 },
+      )
+      .catch(() => {});
+    // The re-run carries the resume with the event's context, unchanged — and
+    // never re-pushes (no fresh branchName options beyond the form's own).
+    const call = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(call.resume).toEqual({ kind: "open-pr", context: openPRContext });
+  });
+
+  it("a switch-to-pr error re-invokes with mode 'pr' and flips the radio", async () => {
+    sdk.__setEvents([
+      {
+        stage: "error",
+        message: "Not a fast-forward",
+        recoverable: true,
+        recovery: "switch-to-pr",
+      },
+    ]);
+    render(<Contribute />);
+    fireEvent.click(screen.getByRole("radio", { name: /commit directly/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^commit$/i }));
+    const switchBtn = await screen.findByRole("button", {
+      name: /save as a pull request instead/i,
+    });
+    fireEvent.click(switchBtn);
+    await waitFor(() => {
+      const call = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(call.mode).toBe("pr");
+    });
+    // The form must not lie about the mode the re-run uses.
+    expect(
+      (screen.getByRole("radio", { name: /pull request/i }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+  });
+
+  it("a use-different-name error with a typed name offers the §8.8 force, which rides the re-run", async () => {
+    sdk.__setEvents([
+      {
+        stage: "error",
+        message: "Branch already exists",
+        recoverable: true,
+        recovery: "use-different-name",
+      },
+    ]);
+    render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "feature/my-branch" } });
+    fireEvent.click(saveButton());
+    await screen.findByText(/branch name is already taken/i);
+    const box = screen.getByLabelText(
+      /update the existing branch instead/i,
+    ) as HTMLInputElement;
+    expect(box).toBeTruthy();
+    fireEvent.click(box);
+    fireEvent.click(saveButton());
+    await waitFor(() => {
+      const call = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(call.forceUpdateBranch).toBe(true);
+      expect(call.branchName).toBe("feature/my-branch");
+    });
+  });
+
+  it("a use-different-name error with a generated name (empty field) shows the hint but no force checkbox", async () => {
+    sdk.__setEvents([
+      {
+        stage: "error",
+        message: "Branch already exists",
+        recoverable: true,
+        recovery: "use-different-name",
+      },
+    ]);
+    render(<Contribute />);
+    fireEvent.click(saveButton());
+    await screen.findByText(/branch name is already taken/i);
+    expect(
+      screen.queryByLabelText(/update the existing branch instead/i),
+    ).toBeNull();
+  });
+
+  it("an unknown or absent recovery renders the bare message and no action", async () => {
+    sdk.__setEvents([
+      { stage: "error", message: "Something else failed", recoverable: true },
+    ]);
+    render(<Contribute />);
+    fireEvent.click(saveButton());
+    await screen.findByText(/something else failed/i);
+    expect(
+      screen.queryByRole("button", {
+        name: /open the pull request|save as a pull request/i,
+      }),
+    ).toBeNull();
+    expect(screen.queryByLabelText(/update the existing branch/i)).toBeNull();
+  });
+
+  it("the §8.8 force rides ONLY the checkbox's own re-run — a later save carries none (round-1 review)", async () => {
+    sdk.__setEvents([
+      {
+        stage: "error",
+        message: "Branch already exists",
+        recoverable: true,
+        recovery: "use-different-name",
+      },
+      {
+        stage: "error",
+        message: "Branch already exists",
+        recoverable: true,
+        recovery: "use-different-name",
+      },
+      { stage: "done", commitSha: "c".repeat(40) },
+    ]);
+    render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "feature/my-branch" } });
+    fireEvent.click(saveButton());
+    await screen.findByText(/branch name is already taken/i);
+    fireEvent.click(
+      screen.getByLabelText(/update the existing branch instead/i),
+    );
+    fireEvent.click(saveButton());
+    await waitFor(() => {
+      const forced = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(forced.forceUpdateBranch).toBe(true);
+    });
+    // The checkbox's own re-run consumed the force; the next save — the plan
+    // re-rendered the checkbox UNCHECKED (the force consumed by the re-run it
+    // rode) — carries no unoffered force.
+    fireEvent.click(saveButton());
+    await waitFor(() => {
+      const later = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(later.forceUpdateBranch).toBeUndefined();
+    });
+  });
+
+  it("a checked §8.8 force never rides a mode-flipped DIRECT save (round-2 review)", async () => {
+    sdk.__setEvents([
+      {
+        stage: "error",
+        message: "Branch already exists",
+        recoverable: true,
+        recovery: "use-different-name",
+      },
+      { stage: "done", commitSha: "c".repeat(40) },
+    ]);
+    render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "feature/my-branch" } });
+    fireEvent.click(saveButton());
+    await screen.findByText(/branch name is already taken/i);
+    fireEvent.click(
+      screen.getByLabelText(/update the existing branch instead/i),
+    );
+    // Flip to direct and save: §8.8 is about a caller-supplied branch name, which
+    // a direct commit has none of — the checked box must not ride it.
+    fireEvent.click(screen.getByRole("radio", { name: /commit directly/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^commit$/i }));
+    await waitFor(() => {
+      const call = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(call.mode).toBe("direct");
+      expect(call.forceUpdateBranch).toBeUndefined();
+    });
+  });
+
+  it("a switch-to-pr re-run CARRIES the typed branch name (round-1 review)", async () => {
+    sdk.__setEvents([
+      {
+        stage: "error",
+        message: "Not a fast-forward",
+        recoverable: true,
+        recovery: "switch-to-pr",
+      },
+      { stage: "done", commitSha: "c".repeat(40) },
+    ]);
+    render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "feature/my-branch" } });
+    fireEvent.click(screen.getByRole("radio", { name: /commit directly/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^commit$/i }));
+    const switchBtn = await screen.findByRole("button", {
+      name: /save as a pull request instead/i,
+    });
+    fireEvent.click(switchBtn);
+    await waitFor(() => {
+      const call = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(call.mode).toBe("pr");
+      // The render-time mode ('direct') must not discard the typed name the
+      // re-run carries.
+      expect(call.branchName).toBe("feature/my-branch");
+    });
+  });
+
+  it("a refused resume surfaces the thrown message, not the canned permission copy (round-1 review)", async () => {
+    // The first stream errors with open-pr; the resume re-run's contribute()
+    // THROWS the ledger's refusal — the thrown message is the description.
+    let first = true;
+    const original = sdk.contribute.getMockImplementation();
+    sdk.contribute.mockImplementation(async function* (...args: unknown[]) {
+      if (first) {
+        first = false;
+        yield {
+          stage: "error",
+          message: "Opening the pull request failed",
+          recoverable: true,
+          recovery: "open-pr",
+          openPR: openPRContext,
+        };
+        return;
+      }
+      const over = (args[0] ?? {}) as { resume?: unknown };
+      if (over.resume) {
+        const err = new Error(
+          "This pull-request resume was refused: the context was not issued to this app",
+        ) as Error & { code?: string };
+        err.code = "forbidden";
+        throw err;
+      }
+      yield { stage: "done", commitSha: "c".repeat(40) };
+    });
+    try {
+      render(<Contribute />);
+      fireEvent.click(saveButton());
+      const resume = await screen.findByRole("button", {
+        name: /open the pull request/i,
+      });
+      fireEvent.click(resume);
+      await screen.findByText(/resume was refused/i);
+      expect(
+        screen.queryByText(/you don.t have permission to save here/i),
+      ).toBeNull();
+    } finally {
+      sdk.contribute.mockImplementation(original);
+    }
+  });
+
+  it("a retry error renders the message; the existing Save button is the retry affordance", async () => {
+    sdk.__setEvents([
+      {
+        stage: "error",
+        message: "Transient failure",
+        recoverable: true,
+        recovery: "retry",
+      },
+    ]);
+    render(<Contribute />);
+    fireEvent.click(saveButton());
+    await screen.findByText(/transient failure/i);
+    // The Save button re-runs unchanged — no new affordance, no forced options.
+    fireEvent.click(saveButton());
+    await waitFor(() => {
+      const call = sdk.contribute.mock.calls.at(-1)?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(call.resume).toBeUndefined();
+      expect(call.forceUpdateBranch).toBeUndefined();
+    });
+  });
+});
+
+// R3-964/986 (CONTRIBUTE_SPEC §15.0): the save-mode facts from the host's
+// VcsState push. The double drives each case; no app-side GitHub call exists.
+describe("Contribute — the VcsState save-mode facts (R3-964/986)", () => {
+  const githubTarget = {
+    namespace: "immediately-run",
+    repository: "docs",
+    ref: "immediately-run/my-edit-abc1234",
+    refKind: "branch" as const,
+    commitSha: "a".repeat(40),
+    defaultBranch: "main",
+  };
+
+  it("(a) an open PR hides the picker and the save button updates it", async () => {
+    sdk.__setVcs({ openPR: { number: 42, url: "https://github.com/x/y/pull/42" }, target: githubTarget });
+    // The REAL wire shape: the done event carries neither mode nor branchName
+    // (round-2 review) — the update copy keys on the openPR fact at run start.
+    sdk.__setEvents([
+      { stage: "done", commitSha: "c".repeat(40), prUrl: "https://github.com/x/y/pull/42", prNumber: 42 },
+    ]);
+    render(<Contribute />);
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    screen.getByText(/Updating PR #42 on branch immediately-run\/my-edit-abc1234\./);
+    fireEvent.click(screen.getByRole("button", { name: /update pr #42/i }));
+    await waitFor(() => expect(sdk.contribute).toHaveBeenCalled());
+    // The extend-existing success state reports an UPDATE, not a fresh open.
+    await screen.findByText(/Pull request updated —/);
+    // …and no stale typed branch name rides the update run.
+    const call = sdk.contribute.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(call.branchName).toBeUndefined();
+  });
+
+  it("(a2) a stale typed branch name neither validates nor disables the update run", async () => {
+    // Type an INVALID name first (field visible), then the openPR fact arrives
+    // and hides the field: its stale error must not disable "Update PR #n".
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true });
+    const { rerender } = render(<Contribute />);
+    fireEvent.change(branchField(), { target: { value: "not a valid name!!" } });
+    screen.getByText(/invalid branch name/i);
+    sdk.__setVcs({ openPR: { number: 42, url: "https://github.com/x/y/pull/42" }, target: githubTarget });
+    rerender(<Contribute />);
+    const update = screen.getByRole("button", { name: /update pr #42/i }) as HTMLButtonElement;
+    expect(update.disabled).toBe(false);
+    expect(screen.queryByText(/invalid branch name/i)).toBeNull();
+  });
+
+  it("(b2) an unresolved defaultBranch reads 'the default branch', never a literal ellipsis", () => {
+    sdk.__setVcs({ target: { ...githubTarget, ref: "v1.2.3", refKind: "tag" as const, defaultBranch: null } });
+    render(<Contribute />);
+    screen.getByText(/PR will target the default branch \(loaded ref is a tag\)\./);
+    expect(screen.queryByText(/…/)).toBeNull();
+  });
+
+  it("(b) a tag load hides the direct radio and shows the rule-2 notice", () => {
+    sdk.__setVcs({ target: { ...githubTarget, ref: "v1.2.3", refKind: "tag" as const } });
+    render(<Contribute />);
+    screen.getByText(/PR will target default branch main \(loaded ref is a tag\)\./);
+    expect(screen.queryByRole("radio", { name: /commit directly/i })).toBeNull();
+    expect((screen.getByRole("radio", { name: /pull request/i }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("(c) canPushUpstream: false hides the direct radio and shows the fork notice", () => {
+    sdk.__setVcs({ canPushUpstream: false, target: githubTarget });
+    render(<Contribute />);
+    screen.getByText(/No push access to immediately-run\/docs — the PR opens from your fork\./);
+    expect(screen.queryByRole("radio", { name: /commit directly/i })).toBeNull();
+  });
+
+  it("canPushUpstream: null disables the direct radio without hiding it", () => {
+    sdk.__setVcs({ canPushUpstream: null });
+    render(<Contribute />);
+    const direct = screen.getByRole("radio", { name: /commit directly/i }) as HTMLInputElement;
+    expect(direct.disabled).toBe(true);
+  });
+
+  it("(d) a direct commit links the new commit, built from target", async () => {
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true, defaultSaveMode: "direct" });
+    // The real direct-commit stream: commit-pushed carries the ref; the done
+    // event carries no branchName (round-2 review).
+    sdk.__setEvents([
+      { stage: "commit-pushed", commitSha: "c".repeat(40), ref: "immediately-run/my-edit-abc1234" },
+      { stage: "done", commitSha: "c".repeat(40) },
+    ]);
+    render(<Contribute />);
+    fireEvent.click(screen.getByRole("button", { name: /^commit$/i }));
+    const link = (await screen.findByRole("link")) as HTMLAnchorElement;
+    expect(link.href).toBe(`https://github.com/immediately-run/docs/commit/${"c".repeat(40)}`);
+    // The full sentence, not 'to undefined': the ref comes from commit-pushed.
+    await screen.findByText(/to immediately-run\/my-edit-abc1234\./);
+  });
+
+  it("(e) a plain new PR: the picker shows both radios and opens a PR", async () => {
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true, openPR: null });
+    render(<Contribute />);
+    expect((screen.getByRole("radio", { name: /pull request/i }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: /commit directly/i }) as HTMLInputElement).disabled).toBe(false);
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(sdk.contribute).toHaveBeenCalled());
+  });
+
+  it("defaultSaveMode: 'direct' preselects direct; absent stays pr", () => {
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true, defaultSaveMode: "direct" });
+    const { unmount } = render(<Contribute />);
+    expect((screen.getByRole("radio", { name: /commit directly/i }) as HTMLInputElement).checked).toBe(true);
+    unmount();
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true });
+    render(<Contribute />);
+    expect((screen.getByRole("radio", { name: /pull request/i }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("a user's choice is never overwritten by a later defaultSaveMode push", () => {
+    // The host's default arrives first (pr), the user picks direct, and a
+    // re-render with the same facts must not flip it back.
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true });
+    const { rerender } = render(<Contribute />);
+    fireEvent.click(screen.getByRole("radio", { name: /commit directly/i }));
+    expect((screen.getByRole("radio", { name: /commit directly/i }) as HTMLInputElement).checked).toBe(true);
+    sdk.__setVcs({ target: githubTarget, canPushUpstream: true, defaultSaveMode: "pr" });
+    rerender(<Contribute />);
+    expect((screen.getByRole("radio", { name: /commit directly/i }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("every fact absent renders today's form", () => {
+    sdk.__setVcs({});
+    render(<Contribute />);
+    expect((screen.getByRole("radio", { name: /pull request/i }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: /commit directly/i }) as HTMLInputElement).disabled).toBe(false);
+    expect(screen.queryByText(/Updating PR/)).toBeNull();
+    expect(screen.queryByText(/PR will target/)).toBeNull();
+    expect(screen.queryByText(/No push access/)).toBeNull();
+  });
+});
+
+// R3-659 (CONTRIBUTE_TRANSCRIPT_SPEC §4 R-CT-3/5/6/8): the "Commit session
+// transcript" request checkbox, driven by the VcsState agentSession fact.
+describe("Contribute — the transcript request checkbox (R3-659)", () => {
+  // The projection's shape (the SDK's VcsAgentSession): gate facts only.
+  const agentSession = {
+    repo: "immediately-run/docs",
+    conversationId: "c1",
+    messageCount: 3,
+    running: false,
+  };
+  const transcriptBox = () =>
+    screen.getByRole("checkbox", {
+      name: "Commit session transcript",
+    }) as HTMLInputElement;
+  const queryTranscriptBox = () =>
+    screen.queryByRole("checkbox", { name: "Commit session transcript" });
+  const sentParams = (call: number) =>
+    sdk.contribute.mock.calls[call][0] as Record<string, unknown>;
+
+  it("renders iff VcsState.agentSession is present — absent, not disabled, otherwise (R-CT-3)", () => {
+    sdk.__setVcs({ agentSession });
+    const { unmount } = render(<Contribute />);
+    expect(transcriptBox().disabled).toBe(false);
+    unmount();
+
+    // Every shape the wire type allows for "no session": the key absent, null,
+    // and an explicit undefined.
+    for (const vcs of [{}, { agentSession: null }, { agentSession: undefined }]) {
+      sdk.__setVcs(vcs);
+      const view = render(<Contribute />);
+      expect(queryTranscriptBox()).toBeNull();
+      expect(screen.queryByText("Commit session transcript")).toBeNull();
+      view.unmount();
+    }
   });
 
   it("is unchecked by default (R-CT-8)", () => {
+    sdk.__setVcs({ agentSession });
     render(<Contribute />);
-    expect((screen.getByRole("checkbox", { name: "Commit session transcript" }) as HTMLInputElement).checked).toBe(
-      false,
-    );
+    expect(transcriptBox().checked).toBe(false);
   });
 
-  it("a run with the box checked sends transcriptRequested: true and nothing else transcript-shaped", async () => {
+  it("a run with the box checked sends transcriptRequested: true and nothing else transcript-shaped (R-CT-6)", async () => {
+    sdk.__setVcs({ agentSession });
     render(<Contribute />);
-    await checkTheBox();
-    expect(contributeCalls).toHaveLength(1);
-    const params = contributeCalls[0];
-    expect(params.transcriptRequested).toBe(true);
-    expect(Object.keys(params).filter((k) => k.toLowerCase().includes("transcript"))).toEqual([
-      "transcriptRequested",
-    ]);
-    expect(JSON.stringify(params)).not.toMatch(/buffer|bytes|path":/i);
+    fireEvent.click(transcriptBox());
+    fireEvent.click(saveButton());
+    await screen.findByText(/Committed/);
+    expect(sdk.contribute).toHaveBeenCalledTimes(1);
+    // The whole params object: the form's two fields and the one boolean.
+    expect(sentParams(0)).toEqual({
+      commitMessage: "Update",
+      mode: "pr",
+      transcriptRequested: true,
+    });
   });
 
-  it("a run with the box UNCHECKED sends no hint key at all", async () => {
+  it("a run with the box unchecked sends no hint key at all", async () => {
+    sdk.__setVcs({ agentSession });
     render(<Contribute />);
-    fireEvent.click(screen.getByRole("button", { name: "Open pull request" }));
-    await waitFor(() => expect(contributeCalls).toHaveLength(1));
-    expect(contributeCalls[0]).not.toHaveProperty("transcriptRequested");
+    fireEvent.click(saveButton());
+    await screen.findByText(/Committed/);
+    expect(sentParams(0)).toEqual({ commitMessage: "Update", mode: "pr" });
   });
 
-  it("the hint is spent on use: a second run starts unchecked (R-CT-8)", async () => {
+  it("the hint is spent on use: a second run starts unchecked and sends nothing (R-CT-8)", async () => {
+    sdk.__setVcs({ agentSession });
     render(<Contribute />);
-    await checkTheBox();
-    // After the run the box reads unchecked again…
-    expect((screen.getByRole("checkbox", { name: "Commit session transcript" }) as HTMLInputElement).checked).toBe(
-      false,
-    );
-    // …and the retry path re-sends nothing unless the user re-checks.
-    fireEvent.click(screen.getByRole("button", { name: "Open pull request" }));
-    await waitFor(() => expect(contributeCalls).toHaveLength(2));
-    expect(contributeCalls[1]).not.toHaveProperty("transcriptRequested");
+    fireEvent.click(transcriptBox());
+    fireEvent.click(saveButton());
+    await screen.findByText(/Committed/);
+    expect(transcriptBox().checked).toBe(false);
+
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(sdk.contribute).toHaveBeenCalledTimes(2));
+    expect(sentParams(1)).not.toHaveProperty("transcriptRequested");
+  });
+
+  it("a failed run spends the hint too — the retry re-asks instead of re-sending", async () => {
+    sdk.__setVcs({ agentSession });
+    sdk.__setEvents([{ stage: "error", message: "boom", recovery: "retry" }]);
+    render(<Contribute />);
+    fireEvent.click(transcriptBox());
+    fireEvent.click(saveButton());
+    await screen.findByRole("alert");
+    expect(sentParams(0).transcriptRequested).toBe(true);
+    expect(transcriptBox().checked).toBe(false);
+
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(sdk.contribute).toHaveBeenCalledTimes(2));
+    expect(sentParams(1)).not.toHaveProperty("transcriptRequested");
+  });
+
+  it("a box checked before the session fact was withdrawn does not ride the next run", async () => {
+    sdk.__setVcs({ agentSession });
+    const view = render(<Contribute />);
+    fireEvent.click(transcriptBox());
+    // The host withdraws the fact (the session closed): the control unmounts.
+    sdk.__setVcs({});
+    view.rerender(<Contribute />);
+    expect(queryTranscriptBox()).toBeNull();
+
+    fireEvent.click(saveButton());
+    await screen.findByText(/Committed/);
+    expect(sentParams(0)).not.toHaveProperty("transcriptRequested");
+
+    // …and the fact returning does not resurrect the old tick.
+    sdk.__setVcs({ agentSession });
+    view.rerender(<Contribute />);
+    expect(transcriptBox().checked).toBe(false);
+  });
+
+  it("the box is disabled while a save is in flight", async () => {
+    sdk.__setVcs({ agentSession });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    sdk.contribute.mockImplementationOnce(async function* () {
+      await gate;
+      yield { stage: "done", commitSha: "c".repeat(40) };
+    });
+    render(<Contribute />);
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(transcriptBox().disabled).toBe(true));
+    release();
+    await screen.findByText(/Committed/);
+    expect(transcriptBox().disabled).toBe(false);
   });
 });

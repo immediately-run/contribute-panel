@@ -109,6 +109,10 @@
 .ct-done {
   background: color-mix(in srgb, #2ecc71 18%, transparent);
 }
+.ct-field-error {
+  color: #ffb4b4;
+  font-size: 12px;
+}
 .ct-error {
   background: color-mix(in srgb, #ff5c5c 18%, transparent);
   color: #ffb4b4;
@@ -130,14 +134,23 @@
   cursor: pointer;
   font: inherit;
 }
-.ct-transcript {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: inherit;
-  cursor: pointer;
+
+/* R3-994: the use-different-name recovery hint — the message line then the §8.8
+   checkbox, spaced off each other and off the error message above. */
+.ct-recovery-hint p {
+  margin: 6px 0 4px;
 }
-.ct-transcript input {
-  accent-color: var(--ct-accent, #4f8cff);
+.ct-recovery-hint .ct-radio {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* R3-964/986: the save-mode notices (open-PR / rule-2 / fork) — the ct-status
+   block's padding and size without a status colour. */
+.ct-note {
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  background: color-mix(in srgb, #7aa2f7 14%, transparent);
 }

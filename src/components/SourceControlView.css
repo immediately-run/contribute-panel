@@ -251,3 +251,22 @@
   --ct-input-bg: var(--bg);
   --ct-accent: var(--accent-hot);
 }
+
+/* R3-987: the lockout banners (the panel's own note style — never borrowed
+   from the save form's stylesheet) and the new fact sections. */
+.scp-note {
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  background: color-mix(in srgb, #7aa2f7 14%, transparent);
+}
+.scp-repo {
+  padding: 2px 0 6px;
+}
+.scp-warnings,
+.scp-phantoms {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+}
