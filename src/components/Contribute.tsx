@@ -121,7 +121,14 @@ export default function Contribute() {
   // control unmounts and the tick goes with it, so a box that comes back with a
   // later session starts unchecked (the same render-time adjustment as the
   // hidden direct radio above).
-  if (!hasAgentSession && transcriptRequested) setTranscriptRequested(false);
+  // R3-1189 (R-CT-5's mode clause): the checkbox is visible iff the session fact is
+  // present AND the resolved mode is a PR mode AND the mode is KNOWN (the reader
+  // touched it, or the host's default has arrived) - an unknown-while-resolving mode
+  // hides it. Hiding clears the tick: a tick made in a PR mode must not survive a
+  // switch to direct and back.
+  const modeKnown = modeTouched || vcs.defaultSaveMode != null;
+  const transcriptVisible = hasAgentSession && mode === "pr" && modeKnown;
+  if (!transcriptVisible && transcriptRequested) setTranscriptRequested(false);
   // The direct-commit link, built once from target (R3-986): the done phase's
   // href and its openExternalLink call share this spelling (R6).
   const commitUrl =
@@ -181,10 +188,9 @@ export default function Contribute() {
       // mode-flipped direct save.
       const forceThisRun = forceUpdate && (over.mode ?? mode) === "pr";
       if (forceUpdate) setForceUpdate(false);
-      // R-CT-8: the transcript hint is spent on use — cleared before the call, so
-      // a run that fails or needs the App installed re-asks rather than silently
-      // re-sending, and the next contribution starts unchecked.
-      if (transcriptRequested) setTranscriptRequested(false);
+      // R-CT-8 as amended (R3-1189): the tick is NOT spent on use — a run that
+      // fails, is cancelled, or needs the App installed keeps it, so the reader
+      // genuinely re-asks; only a committed run clears it (the done path below).
       try {
         const stream = contribute({
           ...opts.options,
@@ -233,6 +239,11 @@ export default function Contribute() {
           setPhase({ kind: "running", stage: ev.stage });
         }
         // The generator's RETURN value is the settled result; prefer it.
+        // R-CT-8 as amended (R3-1189): a COMMITTED run spends the tick — the
+        // commit-pushed ref (or the settled result's commit) is the fact a commit
+        // landed; anything that ended without one kept it through the failure
+        // paths above.
+        if (pushedRef || result?.commitSha) setTranscriptRequested(false);
         setPhase({
           kind: "done",
           result:
@@ -392,7 +403,7 @@ export default function Contribute() {
         </>
       )}
 
-      {hasAgentSession && (
+      {transcriptVisible && (
         <label className="ct-radio">
           <input
             type="checkbox"

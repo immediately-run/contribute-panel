@@ -597,6 +597,9 @@ describe("Contribute — the transcript request checkbox (R3-659)", () => {
     messageCount: 3,
     running: false,
   };
+  // R3-1189 (R-CT-5's mode clause): the checkbox shows only when the resolved
+  // mode is a PR mode — every showing setup carries the host's resolved fact.
+  const prSession = { agentSession, defaultSaveMode: "pr" };
   const transcriptBox = () =>
     screen.getByRole("checkbox", {
       name: "Commit session transcript",
@@ -607,7 +610,7 @@ describe("Contribute — the transcript request checkbox (R3-659)", () => {
     sdk.contribute.mock.calls[call][0] as Record<string, unknown>;
 
   it("renders iff VcsState.agentSession is present — absent, not disabled, otherwise (R-CT-3)", () => {
-    sdk.__setVcs({ agentSession });
+    sdk.__setVcs(prSession);
     const { unmount } = render(<Contribute />);
     expect(transcriptBox().disabled).toBe(false);
     unmount();
@@ -624,13 +627,13 @@ describe("Contribute — the transcript request checkbox (R3-659)", () => {
   });
 
   it("is unchecked by default (R-CT-8)", () => {
-    sdk.__setVcs({ agentSession });
+    sdk.__setVcs(prSession);
     render(<Contribute />);
     expect(transcriptBox().checked).toBe(false);
   });
 
   it("a run with the box checked sends transcriptRequested: true and nothing else transcript-shaped (R-CT-6)", async () => {
-    sdk.__setVcs({ agentSession });
+    sdk.__setVcs(prSession);
     render(<Contribute />);
     fireEvent.click(transcriptBox());
     fireEvent.click(saveButton());
@@ -645,15 +648,15 @@ describe("Contribute — the transcript request checkbox (R3-659)", () => {
   });
 
   it("a run with the box unchecked sends no hint key at all", async () => {
-    sdk.__setVcs({ agentSession });
+    sdk.__setVcs(prSession);
     render(<Contribute />);
     fireEvent.click(saveButton());
     await screen.findByText(/Committed/);
     expect(sentParams(0)).toEqual({ commitMessage: "Update", mode: "pr" });
   });
 
-  it("the hint is spent on use: a second run starts unchecked and sends nothing (R-CT-8)", async () => {
-    sdk.__setVcs({ agentSession });
+  it("a COMMITTED run spends the tick: a second run starts unchecked and sends nothing (R-CT-8 as amended)", async () => {
+    sdk.__setVcs(prSession);
     render(<Contribute />);
     fireEvent.click(transcriptBox());
     fireEvent.click(saveButton());
@@ -665,23 +668,23 @@ describe("Contribute — the transcript request checkbox (R3-659)", () => {
     expect(sentParams(1)).not.toHaveProperty("transcriptRequested");
   });
 
-  it("a failed run spends the hint too — the retry re-asks instead of re-sending", async () => {
-    sdk.__setVcs({ agentSession });
+  it("a failed run KEEPS the tick — the retry genuinely re-asks with the tick still set (R-CT-8 as amended, R3-1189)", async () => {
+    sdk.__setVcs(prSession);
     sdk.__setEvents([{ stage: "error", message: "boom", recovery: "retry" }]);
     render(<Contribute />);
     fireEvent.click(transcriptBox());
     fireEvent.click(saveButton());
     await screen.findByRole("alert");
     expect(sentParams(0).transcriptRequested).toBe(true);
-    expect(transcriptBox().checked).toBe(false);
+    expect(transcriptBox().checked).toBe(true);
 
     fireEvent.click(saveButton());
     await waitFor(() => expect(sdk.contribute).toHaveBeenCalledTimes(2));
-    expect(sentParams(1)).not.toHaveProperty("transcriptRequested");
+    expect(sentParams(1).transcriptRequested).toBe(true);
   });
 
   it("a box checked before the session fact was withdrawn does not ride the next run", async () => {
-    sdk.__setVcs({ agentSession });
+    sdk.__setVcs(prSession);
     const view = render(<Contribute />);
     fireEvent.click(transcriptBox());
     // The host withdraws the fact (the session closed): the control unmounts.
@@ -694,13 +697,13 @@ describe("Contribute — the transcript request checkbox (R3-659)", () => {
     expect(sentParams(0)).not.toHaveProperty("transcriptRequested");
 
     // …and the fact returning does not resurrect the old tick.
-    sdk.__setVcs({ agentSession });
+    sdk.__setVcs(prSession);
     view.rerender(<Contribute />);
     expect(transcriptBox().checked).toBe(false);
   });
 
   it("a tick does not survive the session fact being withdrawn and returning, with no run between", async () => {
-    sdk.__setVcs({ agentSession });
+    sdk.__setVcs(prSession);
     const view = render(<Contribute />);
     fireEvent.click(transcriptBox());
     expect(transcriptBox().checked).toBe(true);
@@ -708,7 +711,7 @@ describe("Contribute — the transcript request checkbox (R3-659)", () => {
     view.rerender(<Contribute />);
     expect(queryTranscriptBox()).toBeNull();
     // A later session (another conversation) brings the control back unchecked…
-    sdk.__setVcs({ agentSession: { ...agentSession, conversationId: "c2" } });
+    sdk.__setVcs({ agentSession: { ...agentSession, conversationId: "c2" }, defaultSaveMode: "pr" });
     view.rerender(<Contribute />);
     expect(transcriptBox().checked).toBe(false);
     // …and the run that follows carries no hint.
@@ -718,7 +721,7 @@ describe("Contribute — the transcript request checkbox (R3-659)", () => {
   });
 
   it("the box is disabled while a save is in flight", async () => {
-    sdk.__setVcs({ agentSession });
+    sdk.__setVcs(prSession);
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     sdk.contribute.mockImplementationOnce(async function* () {
