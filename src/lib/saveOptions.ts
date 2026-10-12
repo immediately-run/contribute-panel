@@ -42,8 +42,9 @@ export function saveOptions(input: SaveOptionsInput): SaveOptions {
       ...(branchName !== '' ? { branchName } : {}),
       // The hint is a key only when set, never `false`: an unasked run's params are
       // the same object they were before the checkbox existed. It rides in either
-      // mode — the host decides whether a transcript applies (a direct commit gets
-      // no offer), so the app has no mode rule of its own to drift from the host's.
+      // mode — the host decides whether a transcript applies (R-CT-19: it never
+      // offers outside a PR mode), so the MAPPING stays mode-blind; the app's one
+      // mode rule is the checkbox's VISIBILITY (R-CT-5's clause), never the wire.
       ...(input.transcriptRequested === true ? { transcriptRequested: true } : {}),
     },
   };

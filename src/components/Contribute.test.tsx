@@ -735,4 +735,30 @@ describe("Contribute — the transcript request checkbox (R3-659)", () => {
     await screen.findByText(/Committed/);
     expect(transcriptBox().disabled).toBe(false);
   });
+  it("direct mode hides the checkbox: the resolved mode is not a PR mode (R3-1189)", () => {
+    sdk.__setVcs({ agentSession, defaultSaveMode: "direct" });
+    render(<Contribute />);
+    expect(queryTranscriptBox()).toBeNull();
+  });
+
+  it("an unknown mode (the host's default has not arrived, nothing touched) hides it (R3-1189)", () => {
+    sdk.__setVcs({ agentSession });
+    render(<Contribute />);
+    expect(queryTranscriptBox()).toBeNull();
+  });
+
+  it("the mode flipping to direct while ticked hides it, and the next run carries no hint (R3-1189)", async () => {
+    sdk.__setVcs(prSession);
+    const view = render(<Contribute />);
+    fireEvent.click(transcriptBox());
+    expect(transcriptBox().checked).toBe(true);
+    // The host re-resolves the mode to direct while the surface is open.
+    sdk.__setVcs({ agentSession, defaultSaveMode: "direct" });
+    view.rerender(<Contribute />);
+    expect(queryTranscriptBox()).toBeNull();
+    // Direct mode's save control reads "Commit".
+    fireEvent.click(screen.getByRole("button", { name: /^commit$/i }));
+    await screen.findByText(/Committed/);
+    expect(sentParams(0)).not.toHaveProperty("transcriptRequested");
+  });
 });
