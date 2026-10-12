@@ -75,8 +75,8 @@ export default function Contribute() {
   const [branchName, setBranchName] = useState("");
   // CONTRIBUTE_TRANSCRIPT_SPEC §4 R-CT-5/8: the "Commit session transcript"
   // request hint. Unchecked by default, held in component state only (never
-    // R-CT-8 as amended: a run whose commit lands spends it; any other run keeps it —
-  // the host's own review is the consent (the spend site is the run loop below).
+  // stored). R-CT-8 as amended: a run whose commit lands spends it; any other run
+  // keeps it — the host's own review is the consent (the spend site is below).
   const [transcriptRequested, setTranscriptRequested] = useState(false);
   const [mode, setMode] = useState<ContributeMode>("pr");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
@@ -241,7 +241,7 @@ export default function Contribute() {
           if (commitLanded(ev)) {
             // R-CT-8 as amended (R3-1189): the commit landed upstream — the tick
             // spends here, wherever the run goes next. create-branch deliberately
-            // spends nothing: the host yields it BEFORE the ref exists.
+            // spends nothing: the host yields it before the ref exists.
             setTranscriptRequested(false);
           }
           setPhase({ kind: "running", stage: ev.stage });
