@@ -16,6 +16,7 @@ import {
 import { openExternalLink } from "../lib/externalLink";
 import { recoveryPlan, type RecoveryPlan } from "../lib/recovery";
 import { BRANCH_NAME_PLACEHOLDER, saveOptions } from "../lib/saveOptions";
+import { commitLanded } from "../lib/transcriptSpend";
 import RecoveryActions from "./RecoveryActions";
 import "./Contribute.css";
 
@@ -74,7 +75,8 @@ export default function Contribute() {
   const [branchName, setBranchName] = useState("");
   // CONTRIBUTE_TRANSCRIPT_SPEC §4 R-CT-5/8: the "Commit session transcript"
   // request hint. Unchecked by default, held in component state only (never
-  // stored), and consumed by every run — the host's own review is the consent.
+    // R-CT-8 as amended: a run whose commit lands spends it; any other run keeps it —
+  // the host's own review is the consent (the spend site is the run loop below).
   const [transcriptRequested, setTranscriptRequested] = useState(false);
   const [mode, setMode] = useState<ContributeMode>("pr");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
@@ -122,12 +124,12 @@ export default function Contribute() {
   // later session starts unchecked (the same render-time adjustment as the
   // hidden direct radio above).
   // R3-1189 (R-CT-5's mode clause): the checkbox is visible iff the session fact is
-  // present AND the resolved mode is a PR mode AND the mode is KNOWN (the reader
-  // touched it, or the host's default has arrived) - an unknown-while-resolving mode
-  // hides it. Hiding clears the tick: a tick made in a PR mode must not survive a
+  // present AND the resolved mode is a PR mode. `mode` is the resolved live fact —
+  // the host's `defaultSaveMode` applied on arrival (its absence RESOLVES to "pr"
+  // per the SDK's contract) or the reader's explicit choice — re-read on every
+  // render. Hiding clears the tick: a tick made in a PR mode must not survive a
   // switch to direct and back.
-  const modeKnown = modeTouched || vcs.defaultSaveMode != null;
-  const transcriptVisible = hasAgentSession && mode === "pr" && modeKnown;
+  const transcriptVisible = hasAgentSession && mode === "pr";
   if (!transcriptVisible && transcriptRequested) setTranscriptRequested(false);
   // The direct-commit link, built once from target (R3-986): the done phase's
   // href and its openExternalLink call share this spelling (R6).
@@ -188,7 +190,7 @@ export default function Contribute() {
       // mode-flipped direct save.
       const forceThisRun = forceUpdate && (over.mode ?? mode) === "pr";
       if (forceUpdate) setForceUpdate(false);
-      // R-CT-8 as amended (R3-1189): the tick is NOT spent on use — a run that
+      // R-CT-8 as amended (R3-1189): the tick is not spent on use — a run that
       // fails, is cancelled, or needs the App installed keeps it, so the reader
       // genuinely re-asks; only a committed run clears it (the done path below).
       try {
@@ -233,25 +235,17 @@ export default function Contribute() {
           if (ev.stage === "commit-pushed") {
             pushedRef = (ev as { ref?: string }).ref ?? null;
           }
-          if (ev.stage === "commit-pushed" || ev.stage === "create-branch" || ev.stage === "pr-updated") {
-            // R-CT-8 as amended (R3-1189): the commit landed upstream — the tick
-            // spends here, wherever the run goes next.
-            setTranscriptRequested(false);
-          }
           if (ev.stage === "done") {
             result = ev as unknown as ContributionResult;
-            // R-CT-8 as amended (R3-1189): a done that carries a commit spent the
-            // tick (some producers yield the commit only here, never returning it).
-            if ((ev as { commitSha?: string }).commitSha) setTranscriptRequested(false);
+          }
+          if (commitLanded(ev)) {
+            // R-CT-8 as amended (R3-1189): the commit landed upstream — the tick
+            // spends here, wherever the run goes next. create-branch deliberately
+            // spends nothing: the host yields it BEFORE the ref exists.
+            setTranscriptRequested(false);
           }
           setPhase({ kind: "running", stage: ev.stage });
         }
-        // The generator's RETURN value is the settled result; prefer it.
-        // R-CT-8 as amended (R3-1189): a COMMITTED run spends the tick. The spend
-        // happens where the commit lands (below) — create-branch carries the pushed
-        // commit into the PR path, so an error AFTER it (a failed PR open, say) does
-        // not resurrect a tick whose transcript already published; anything that
-        // ended before the commit kept it through the failure paths above.
         setPhase({
           kind: "done",
           result:

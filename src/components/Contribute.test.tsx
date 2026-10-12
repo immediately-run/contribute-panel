@@ -741,10 +741,10 @@ describe("Contribute — the transcript request checkbox (R3-659)", () => {
     expect(queryTranscriptBox()).toBeNull();
   });
 
-  it("an unknown mode (the host's default has not arrived, nothing touched) hides it (R3-1189)", () => {
+  it("an absent defaultSaveMode RESOLVES to pr: with a session the box shows (the SDK's contract)", () => {
     sdk.__setVcs({ agentSession });
     render(<Contribute />);
-    expect(queryTranscriptBox()).toBeNull();
+    expect(transcriptBox()).toBeTruthy();
   });
 
   it("the mode flipping to direct while ticked hides it, and the next run carries no hint (R3-1189)", async () => {
